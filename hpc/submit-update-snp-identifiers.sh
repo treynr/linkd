@@ -21,17 +21,17 @@ fi
 ## affects the job submission syntax.
 version=$(
     qstat --version 2>&1 | 
-    sed -r -e ':a;N;$!ba;s/.*([0-9]+)\.[0-9]+\.[0-9]+.*/\1/'
+    sed -r -e ':a;$!{N;ba};s/.*([0-9]+)\.[0-9]+\.[0-9]+.*/\1/'
 )
 
 ## Old and busted
 if [[ $version -lt 14 ]]; then
 
-    qsub -q batch -t 1-24 -l walltime=01:30:00 -v "$SRC_DIR/update-snp-identifiers.sh"
+    qsub -q batch -t 1-24 -l walltime=01:45:00  "$SRC_DIR/update-snp-identifiers.sh"
 
 ## New hotness
 else
 
-    qsub -q batch -J 1-24 -v "$SRC_DIR/update-snp-identifiers.sh"
+    qsub -q batch -J 1-24 "$SRC_DIR/update-snp-identifiers.sh"
 fi
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-#PBS -N filter-populations
+#PBS -N filter-samples
 #PBS -l nodes=1:ppn=1
 
-## file: filter-populations.sh
-## desc: Filter out specific populations from 1K Genome Project variant calls.
+## file: filter-samples.sh
+## desc: Perform population-based sample filtering on 1K Genome Project variant
+##       calls.
 ## auth: TR
 
 ## Check if this was submitted to HPC cluster
@@ -47,16 +48,9 @@ else
 	while :; do
 		case $1 in
 
-			-p | --population)
-				if [ "$2" ]; then
-					population="$2"
-					shift
-				else
-					echo "ERROR: --population requires an argument"
-					echo "       e.g. 'GBR,FIN', 'GIH'"
-					exit 1
-				fi
-				;;
+			-s | --super)
+                super=1
+                ;;
 
 			-h | -\? | --help)
 				usage
@@ -79,9 +73,12 @@ else
 		shift
 	done
 
-    if [[ $# -lt 2 ]]; then
+    if [[ $# -lt 3 ]]; then
 
-        echo "ERROR: Script requires <input> and <output> arguments"
+        echo "ERROR: $0 requires three arguments. <input> and <output> arguments"
+        echo "       <population>  a comma delimited list of populations to include"
+        echo "       <input>       an input VCF file"
+        echo "       <output>      an output VCF file"
         exit 1
     fi
 
@@ -91,10 +88,12 @@ else
         exit 1
     fi
 
+    ## Population list
+    population="$1"
     ## File being processed
-    input="$1"
+    input="$2"
     ## Output
-    output="$2"
+    output="$3"
 fi
 
 ## Config file searching
@@ -118,5 +117,14 @@ fi
 
 popmap="$DATA_DIR/1k-genomes-sample-populations.tsv"
 
-python "$SRC_DIR/filter-populations.py" -i "$population" "$popmap" "$input" "$output"
+## Remove any quotes from the population variable.
+## Quoted if this is an HPC submission.
+population="$(echo "$population" | sed -e s/\'//g)"
+
+## Use a super population
+if [[ -n "$super" ]]; then
+    python "$SRC_DIR/filter-samples.py" -s "$population" "$popmap" "$input" "$output"
+else
+    python "$SRC_DIR/filter-samples.py" -p "$population" "$popmap" "$input" "$output"
+fi
 
