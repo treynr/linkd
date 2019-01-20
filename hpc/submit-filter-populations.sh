@@ -22,12 +22,17 @@ if [[ "$#" -lt 1 ]]; then
     exit 1
 fi
 
-population="$1"
+## Comma separated lists have to be enclosed in single quotes when passing
+## variables to qsub
+population="'$1'"
 
 ## Check to see what version of PBS/TORQUE is running.
 ## I have access to two clusters which run wildly different versions and this
 ## affects the job submission syntax.
-version=$(qstat --version 2>&1 | sed -r -e ':a;N;$!ba;s/.*([0-9]+)\.[0-9]+\.[0-9]+.*/\1/')
+version=$(
+	qstat --version 2>&1 | 
+	sed -r -e ':a;$!{N;ba};s/[^0-9]*([0-9]+)\.([0-9]+)\.([0-9]+).*/\1/g'
+)
 
 ## Old and busted
 if [[ $version -lt 14 ]]; then
