@@ -16,7 +16,34 @@ Usage
 .. pull-quote::
 
     Using datasets from the 1K Genome Project requires a *lot* of disk space.
-    Uncompressed variant calls are roughly 1TB in size.
+    Uncompressed variant calls are roughly 1TB in size:
+
+         $ du -h -c data/chr+([0-9]|X|Y).vcf
+         44G     data/chr10.vcf
+         49G     data/chr11.vcf
+         42G     data/chr12.vcf
+         34G     data/chr13.vcf
+         32G     data/chr14.vcf
+         27G     data/chr15.vcf
+         30G     data/chr16.vcf
+         26G     data/chr17.vcf
+         27G     data/chr18.vcf
+         20G     data/chr19.vcf
+         77G     data/chr1.vcf
+         20G     data/chr20.vcf
+         12G     data/chr21.vcf
+         14G     data/chr22.vcf
+         77G     data/chr2.vcf
+         70G     data/chr3.vcf
+         69G     data/chr4.vcf
+         58G     data/chr5.vcf
+         55G     data/chr6.vcf
+         52G     data/chr7.vcf
+         50G     data/chr8.vcf
+         43G     data/chr9.vcf
+         32G     data/chrX.vcf
+         188M    data/chrY.vcf
+         949G    total
 
 Start by retrieving variant calls for all 22 autosomoes and both sex chromosomes.
 By default, all data (raw and processed) is saved to the :code:`data/` directory.
