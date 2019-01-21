@@ -22,7 +22,7 @@ Usage
     Using datasets from the 1K Genome Project requires a *lot* of disk space.
     Uncompressed variant calls are roughly 1TB in size.
 
-Start by retrieving variant calls for all 22 autosomoes and both sex chromosomes.
+Start by retrieving variant calls for all 22 autosomes and both sex chromosomes.
 By default, all data (raw and processed) is saved to the :code:`data/` directory.
 
 .. code:: bash
