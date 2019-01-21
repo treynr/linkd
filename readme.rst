@@ -3,7 +3,7 @@ linkd
 =====
 
 `Linkage disequilibrium`__ (LD) refers to the nonrandom assortment of alleles at two 
-different locations, or loci.
+different locations, or loci, in the genome.
 In other words, if two alleles (or genomic variants in this case) are in LD with one another, 
 they are inherited together more than one would expect by random chance.
 This is a collection of scripts for calculating population-specific LD using variant calls 
@@ -118,9 +118,9 @@ Make sure all dependencies are available on your :code:`$PATH`.
 Disk space requirements
 '''''''''''''''''''''''
 
-As mentiond in the introduction, the 1K Genome Project data requires a large amount of
+As mentioned in the introduction, the 1K Genome Project data requires a large amount of
 disk space.
-These scripts can be easily be modified to operate over gzipped variant calls but there are
+These scripts can be easily modified to operate over gzipped variant calls but there are
 currently no plans to do so.
 Unzipped, the raw 1K Genome Project variants take up almost 1TB of space:
 
