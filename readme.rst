@@ -2,9 +2,13 @@
 linkd
 =====
 
-A collection of scripts for calculating population-specific `linkage disequilibrium`__
-(LD) using variant calls from the `1000 Genomes Project`__.
-Each script can be executed by itself or submitted to an HPC cluster for faster
+`Linkage disequilibrium`__ (LD) refers to the nonrandom assortment of alleles at two 
+different locations, or loci.
+In other words, if two alleles (or genomic variants in this case) are in LD with one another, 
+they are inherited together more than one would expect by random chance.
+This is a collection of scripts for calculating population-specific LD using variant calls 
+from the `1000 Genomes Project`__.
+Each script can be executed by itself or submitted to an HPC cluster for faster 
 processing.
 
 .. __: https://en.wikipedia.org/wiki/Linkage_disequilibrium
@@ -17,35 +21,6 @@ Usage
 
     Using datasets from the 1K Genome Project requires a *lot* of disk space.
     Uncompressed variant calls are roughly 1TB in size.
-
-.. code:: bash
-
-     $ du -h -c data/chr+([0-9]|X|Y).vcf
-     44G     data/chr10.vcf
-     49G     data/chr11.vcf
-     42G     data/chr12.vcf
-     34G     data/chr13.vcf
-     32G     data/chr14.vcf
-     27G     data/chr15.vcf
-     30G     data/chr16.vcf
-     26G     data/chr17.vcf
-     27G     data/chr18.vcf
-     20G     data/chr19.vcf
-     77G     data/chr1.vcf
-     20G     data/chr20.vcf
-     12G     data/chr21.vcf
-     14G     data/chr22.vcf
-     77G     data/chr2.vcf
-     70G     data/chr3.vcf
-     69G     data/chr4.vcf
-     58G     data/chr5.vcf
-     55G     data/chr6.vcf
-     52G     data/chr7.vcf
-     50G     data/chr8.vcf
-     43G     data/chr9.vcf
-     32G     data/chrX.vcf
-     188M    data/chrY.vcf
-     949G    total
 
 Start by retrieving variant calls for all 22 autosomoes and both sex chromosomes.
 By default, all data (raw and processed) is saved to the :code:`data/` directory.
@@ -101,13 +76,13 @@ combinations of SNPs on that list and SNPs residing on the same chromosome.
     $ ./src/calculate-ld.sh snp-list.txt data/chr21-merged.vcf data/chr21-ld
 
 
-HPC Usage
+HPC usage
 '''''''''
 
 All scripts can be submitted to an HPC cluster running PBS/TORQUE.
 Submission scripts can be found in the :code:`hpc/` directory.
 These scripts will process all chromosomes simultaneously.
-Their performance (node and process per node utilization) can be tweaked by editing the
+Their performance (node and processes per node utilization) can be tweaked by editing the
 submission or :code:`src/` scripts.
 The HPC version of the previous usage examples:
 
@@ -132,9 +107,49 @@ The following dependencies are required:
 - Python 2.7/3.5/3.6
 - pandas__
 - miller__
+- `plink 1.9`__
 
 .. __: https://pandas.pydata.org/
 .. __: https://github.com/johnkerl/miller
+.. __: https://www.cog-genomics.org/plink/1.9/
 
 Make sure all dependencies are available on your :code:`$PATH`.
+
+Disk space requirements
+'''''''''''''''''''''''
+
+As mentiond in the introduction, the 1K Genome Project data requires a large amount of
+disk space.
+These scripts can be easily be modified to operate over gzipped variant calls but there are
+currently no plans to do so.
+Unzipped, the raw 1K Genome Project variants take up almost 1TB of space:
+
+.. code:: bash
+
+     $ du -h -c data/chr+([0-9]|X|Y).vcf
+     44G     data/chr10.vcf
+     49G     data/chr11.vcf
+     42G     data/chr12.vcf
+     34G     data/chr13.vcf
+     32G     data/chr14.vcf
+     27G     data/chr15.vcf
+     30G     data/chr16.vcf
+     26G     data/chr17.vcf
+     27G     data/chr18.vcf
+     20G     data/chr19.vcf
+     77G     data/chr1.vcf
+     20G     data/chr20.vcf
+     12G     data/chr21.vcf
+     14G     data/chr22.vcf
+     77G     data/chr2.vcf
+     70G     data/chr3.vcf
+     69G     data/chr4.vcf
+     58G     data/chr5.vcf
+     55G     data/chr6.vcf
+     52G     data/chr7.vcf
+     50G     data/chr8.vcf
+     43G     data/chr9.vcf
+     32G     data/chrX.vcf
+     188M    data/chrY.vcf
+     949G    total
 
