@@ -6,8 +6,54 @@
 ## desc: Update reference SNP identifiers to their most recent version.
 ## auth: TR
 
-## Check if this was submitted to HPC cluster
-if [[ -n "$PBS_JOBID" ]]; then
+usage() {
+
+    echo "usage: $0 [options] <merged> <input> <output>"
+    echo ""
+    echo "Update old reference SNP identifiers using the NCBI rsMerge table"
+    echo ""
+    echo "Misc. options:"
+    echo "  -i, --interactive  the script is running in an interactive HPC session and"
+    echo "                     should not be treated as an HPC job"
+    echo "  -h, --help         print this help message and exit"
+    echo ""
+    echo "Arguments:"
+    echo "  <merged>           a TSV file containing SNP IDs to update"
+    echo "  <input>            an input VCF file"
+    echo "  <output>           an output VCF file"
+}
+
+## cmd line processing if this script was not submitted to an HPC cluster
+while :; do
+    case $1 in
+
+        -i | --interactive)
+            interactive=1
+            ;;
+
+        -h | -\? | --help)
+            usage
+            exit
+            ;;
+
+        --)
+            shift
+            break
+            ;;
+
+        -?*)
+            echo "WARN: unknown option (ignored): $1" >&2
+            ;;
+
+        *)
+            break
+    esac
+
+    shift
+done
+
+## Check if this was submitted to HPC cluster and the interactive argument wasn't given
+if [[ -n "$PBS_JOBID" && -z "$interactive" ]]; then
 
     cd "$PBS_O_WORKDIR"
 
@@ -36,37 +82,11 @@ if [[ -n "$PBS_JOBID" ]]; then
     fi
 else
 
-	## cmd line processing if this script was not submitted to an HPC cluster
-	while :; do
-		case $1 in
-
-			-h | -\? | --help)
-				usage
-				exit
-				;;
-
-			--)
-				shift
-				break
-				;;
-
-			-?*)
-				echo "WARN: unknown option (ignored): $1" >&2
-				;;
-
-			*)
-				break
-		esac
-
-		shift
-	done
-
     if [[ $# -lt 3 ]]; then
 
         echo "ERROR: Script requires three arguments"
-        echo "       <merged>  a file containing updated SNP IDs"
-        echo "       <input>   an input VCF"
-        echo "       <output>  an output VCF"
+        echo ""
+        usage
         exit 1
     fi
 
@@ -91,7 +111,7 @@ else
 fi
 
 ## If job submission, then we construct the filenames
-if [[ -n "$PBS_JOBID" ]]; then
+if [[ -n "$PBS_JOBID" && -z "$interactive" ]]; then
 
     if [[ -z "$merged" ]]; then
         merged="$DATA_DIR/merged-snps.tsv"
@@ -104,5 +124,9 @@ fi
 ## Label some of the columns
 mlr --tsvlite --pass-comments --implicit-csv-header label "chr,pos,rsid" "$input" |
 ## Join the merged SNP table and VCF file to update SNP reference IDs
-mlr --tsvlite --pass-comments --headerless-csv-output join -f "$merged" -l 'old_rsid' -r 'rsid' -j 'rsid' --ur > "$output"
+mlr --tsvlite --pass-comments join -f "$merged" -l 'old_rsid' -r 'rsid' -j 'rsid' --ur |
+## If the rsID was updated we need to get rid of the old one and replace the field name
+mlr --tsvlite --pass-comments put 'if (haskey($*, "new_rsid")) { $rsid = $new_rsid; unset $new_rsid; }' |
+## Reorder the first three columns which may be out of order due to the update
+mlr --tsvlite --pass-comments --headerless-csv-output reorder -f 'chr,pos,rsid' > "$output"
 
