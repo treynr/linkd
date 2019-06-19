@@ -318,10 +318,13 @@ def filter_populations(client: Client, pops: List[str], super_pop: bool = False)
 def filter_populations2(
     client: Client,
     pops: List[str],
+    chromosomes: List[int] = range(0, 23),
     super_pop: bool = False,
     merge_table: ddf.DataFrame = ddf.from_pandas(pd.DataFrame([]), npartitions=1),
 ) -> List[Future]:
     """
+    Unless you have a couple TB of RAM (e.g., Summit or Titan), this needs to be done
+    in chunks.
     """
 
     ## List of delayed objects that will be written to files
@@ -333,7 +336,7 @@ def filter_populations2(
     ## Make sure it exists
     outdir.mkdir(exist_ok=True)
 
-    for chrom in range(1, 23):
+    for chrom in chromosomes:
     #for chrom in range(1, 2):
         vcf_path = globe._fp_1k_variant_autosome % chrom
         out_path = Path(outdir, f'chromosome-{chrom}.vcf')
@@ -347,7 +350,7 @@ def filter_populations2(
         if len(merge_table.index) != 0:
             merge_df = client.submit(merge.merge_snp_identifiers, filt_df, header, merge_table)
         else:
-            merge_df = df
+            merge_df = filt_df
 
         #df = filter_vcf_populations(vcf_path, pops, super_pop=super_pop)
         #dfs = client.scatter(df)
@@ -358,14 +361,14 @@ def filter_populations2(
 
         saved.append(future)
 
-    x_out = Path(outdir, 'chromosome-x.vcf')
-    x_head, x_df = read_vcf(vcf_path)
-    x_filt_df = client.submit(
-        filter_vcf_populations, x_df, pops, super_pop=super_pop
-    )
-    x_fut = client.submit(save_variant_dataframe2, x_filt_df, x_out, header=x_head)
+    #x_out = Path(outdir, 'chromosome-x.vcf')
+    #x_head, x_df = read_vcf(vcf_path)
+    #x_filt_df = client.submit(
+    #    filter_vcf_populations, x_df, pops, super_pop=super_pop
+    #)
+    #x_fut = client.submit(save_variant_dataframe2, x_filt_df, x_out, header=x_head)
 
-    saved.append(x_fut)
+    #saved.append(x_fut)
 
     #y_df = filter_vcf_populations(globe._fp_1k_variant_y, pops, super_pop=super_pop)
     #y_df = save_variant_dataframe(y_df, globe._fp_1k_processed_y)
@@ -408,13 +411,13 @@ if __name__ == '__main__':
         interface='ib0',
         cores=2,
         processes=2,
-        memory='70GB',
-        walltime='02:00:00',
+        memory='80GB',
+        walltime='04:00:00',
         job_extra=['-e logs', '-o logs'],
         env_extra=['cd $PBS_O_WORKDIR']
     )
 
-    cluster.adapt(minimum=10, maximum=150)
+    cluster.adapt(minimum=10, maximum=80)
     """
     cluster = LocalCluster(n_workers=1, processes=True)
     """
@@ -436,7 +439,9 @@ if __name__ == '__main__':
     merge_table = merge.parse_merge_table()
 
     #dels = filter_populations(client, pops=['ACB'])
-    dels = filter_populations2(client, pops=['ACB'], merge_table=merge_table)
+    dels = filter_populations2(
+        client, pops=['ACB'], chromosomes=range(1, 10), merge_table=merge_table
+    )
 
     client.gather(dels)
 
