@@ -5,14 +5,16 @@
 ## desc: Functions for filtering variant calls based on population structure.
 
 from dask.distributed import Client
-from dask.distributed import as_completed
+from dask.distributed import get_client
 from dask_jobqueue import PBSCluster
+
 from dask.distributed import Future
 from dask.distributed import LocalCluster
 from functools import partial
 from pathlib import Path
 from typing import List
 from zipfile import ZipFile
+from glob import glob
 import dask
 import dask.dataframe as ddf
 import gzip
@@ -21,6 +23,8 @@ import pandas as pd
 import shutil
 import tempfile as tf
 
+from . import cluster
+from . import dfio
 from . import exceptions
 from . import globe
 from . import log
@@ -86,38 +90,12 @@ def extract_header(fp: str) -> List[str]:
 
             break
 
-    if not header:
-        raise exceptions.VCFHeaderParsingFailed(
-            f'Could not discern VCF header from {fp}'
-        )
+    #if not header:
+    #    raise exceptions.VCFHeaderParsingFailed(
+    #        f'Could not discern VCF header from {fp}'
+    #    )
 
     return header
-
-
-def retain_samples(pops: List[str], popmap: pd.DataFrame, super_pop=False) -> List[str]:
-    """
-    Determine what variant call samples to keep based on population structure.
-    Returns a list of samples that should be EXCLUDED from further analysis.
-
-    arguments
-        pops:      a list of population IDs
-        popmap:    the sample -> population mapping dataframe
-        super_pop: if True, the population list contains a list of super population IDs
-
-    returns
-        a list of samples to retain
-    """
-
-    ## Get sample IDs associated with the given population
-    if super_pop:
-        samples = popmap[popmap.super_pop.isin(pops)]['sample']
-    else:
-        samples = popmap[popmap['pop'].isin(pops)]['sample']
-
-    ## Now get all other samples that should be excluded
-    samples = popmap[~popmap['sample'].isin(samples)]['sample']
-
-    return samples.tolist()
 
 
 def read_vcf(fp: str) -> ddf.DataFrame:
@@ -139,26 +117,45 @@ def read_vcf(fp: str) -> ddf.DataFrame:
     )
 
 
-def filter_vcf_populations(
-    df: ddf.DataFrame,
-    pops: List[str],
-    super_pop: bool = False
-) -> ddf.DataFrame:
+def _find_vcf_header(vcf_dir: str) -> List[str]:
     """
-    Filter variant call samples based on population structure.
+    Given a directory of VCF files (all of which should have the same header), this
+    grabs a random file from the directory and attempts to extract the header from
+    that file.
+    """
+
+    header = []
+
+    for fp in glob(Path(vcf_dir, '*.vcf').as_posix()):
+        header = extract_header(fp)
+
+        if header:
+            break
+
+    if not header:
+        raise exceptions.VCFHeaderParsingFailed(
+            f'No usable header files could be extracted from {vcf_dir}'
+        )
+
+    return header
+
+
+def _read_vcf(fp: str, header: List[str], is_dir: bool = True) -> ddf.DataFrame:
+    """
+    Read in a VCF file.
 
     arguments
-        df:
-        pops:
+        fp: filepath to the VCF file
+        header: filepath to the VCF file
 
     returns
+        a dask dataframe
     """
 
-    #df = read_vcf(fp)
-    popmap = read_population_map()
-    samps = retain_samples(pops, popmap, super_pop=super_pop)
+    if is_dir:
+        fp = Path(fp, '*.vcf').as_posix()
 
-    return df.drop(labels=samps, axis=1)
+    return ddf.read_csv(fp, sep='\t', comment='#', header=None, names=header)
 
 
 def filter_vcf_populations_serial(
@@ -177,7 +174,7 @@ def filter_vcf_populations_serial(
     """
 
     popmap = read_population_map()
-    samps = retain_samples(pops, popmap, super_pop=super_pop)
+    samps = identify_excluded_samples(pops, popmap, super_pop=super_pop)
     header = extract_header(fp)
 
     for vcf in pd.read_csv(
@@ -315,6 +312,175 @@ def filter_populations(client: Client, pops: List[str], super_pop: bool = False)
     return saved
 """
 
+def identify_excluded_samples(
+    pops: List[str],
+    popmap: pd.DataFrame,
+    super_pop=False
+) -> List[str]:
+    """
+    Determine what variant call samples to exclude based on population structure.
+    Using an input list of populations a user want to INCLUDE in an analysis, this
+    returns a list of samples that should be EXCLUDED from further analysis.
+
+    arguments
+        pops:      a list of population IDs we want to retain
+        popmap:    the sample -> population mapping dataframe
+        super_pop: if True, the population list contains a list of super population IDs
+
+    returns
+        a list of samples to exclude (the inverse of the given pops argument)
+    """
+
+    ## Get sample IDs associated with the given population
+    if super_pop:
+        samples = popmap[popmap.super_pop.isin(pops)]['sample']
+    else:
+        samples = popmap[popmap['pop'].isin(pops)]['sample']
+
+    ## Now get all other samples that should be excluded
+    samples = popmap[~popmap['sample'].isin(samples)]['sample']
+
+    return samples.tolist()
+
+
+def filter_vcf_populations(
+    df: ddf.DataFrame,
+    popmap: pd.DataFrame,
+    pops: List[str],
+    super_pop: bool = False
+) -> ddf.DataFrame:
+    """
+    Filter variant call samples based on population structure.
+
+    arguments
+        df:
+        pops:
+
+    returns
+    """
+
+    #popmap = read_population_map()
+    samples = identify_excluded_samples(pops, popmap, super_pop=super_pop)
+
+    return df.drop(labels=samples, axis=1)
+
+
+def _save_distributed_variants(df: pd.DataFrame, out_dir: str = globe._dir_1k_processed):
+    """
+    Designed to be called from a dask dataframe groupby apply operation. Saves the grouped
+    variant dataframe to a file.
+
+    :param df:
+    :return:
+    """
+
+    output = Path(out_dir, f'chromosome-{df.name}.vcf').as_posix()
+
+    df.to_csv(output, sep='\t', index=None, header=None)
+
+    return output
+
+
+def filter_populations3(
+    vdf: ddf.DataFrame,
+    populations: List[str],
+    super_pop: bool = False
+) -> ddf.DataFrame:
+    """
+
+    :param vdf:
+    :param populations:
+    :param super_pop:
+    :return:
+    """
+
+def _filter_populations(
+    populations: List[str],
+    super_pop: bool = False,
+    vcf_dir: str = globe._dir_1k_variants,
+    map_path: str = globe._fp_population_map
+) -> ddf.DataFrame:
+    """
+
+    :param populations:
+    :param super_pop:
+    :param vcf_dir:
+    :return:
+    """
+
+    ## Read in the population mapping file
+    popmap = read_population_map(map_path)
+
+    ## Determine the header fields for the given set of VCF files
+    header = _find_vcf_header(vcf_dir)
+
+    ## Read in all ~800GB of variants
+    variants = _read_vcf(vcf_dir, header, is_dir=True)
+    #variants = _read_vcf('data/1k-variants/chromosome-22.vcf', header, is_dir=False)
+    #variants = _read_vcf('data/1k-variants/samples/chromosome-*.vcf', header, is_dir=False)
+
+    ## Filter based on population structure
+    variants = filter_vcf_populations(variants, popmap, populations, super_pop=super_pop)
+
+    return variants
+
+
+def _save_chromosomal_variants(
+    df: ddf.DataFrame,
+    populations: List[str],
+    out_dir: str = globe._dir_1k_processed
+) -> None:
+    """
+    Partition the dataframe by chromosome and save variants to individual files.
+
+    :param df:
+    :return:
+    """
+
+    ## Generate an output path based on the populations used for filtering
+    output = Path(out_dir, '-'.join(populations).lower())
+
+    ## Make the directory if it doesn't exist
+    output.mkdir(exist_ok=True)
+
+    ## Provide meta so dask stops bitching
+    df.groupby('CHROM').apply(
+        _save_distributed_variants, output.as_posix(), meta=('CHROM', 'object')
+    ).compute()
+
+
+def _save_chromosomal_variants2(
+    df: ddf.DataFrame,
+    populations: List[str],
+    out_dir: str = globe._dir_1k_processed
+) -> None:
+    """
+    Partition the dataframe by chromosome and save variants to individual files.
+
+    :param df:
+    :return:
+    """
+
+    ## Generate an output path based on the populations used for filtering
+    out_dir = Path(out_dir, '-'.join(populations).lower())
+
+    ## Make the directory if it doesn't exist
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    futures = []
+
+    ## Faster to loop, filter by chromosome number, and save than using a groupby
+    ## statement
+    for chrom in (range(1, 23) + ['X']):
+
+        output = Path(out_dir, f'chromosome-{chrom}.vcf')
+        future = dfio.save_distributed_dataframe_async(df[df.CHROM == chrom], output)
+
+        futures.append(future)
+
+    return futures
+
+
 def filter_populations2(
     client: Client,
     pops: List[str],
@@ -404,46 +570,36 @@ if __name__ == '__main__':
     #    processes=True
     #))
 
-    ## Each job utilizes 2 python processes (1 core each, 35GB limit of RAM each)
-    cluster = PBSCluster(
+    client = cluster.initialize_cluster(
+        hpc=True,
+        #hpc=False,
         name='linkage-disequilibrium',
-        queue='batch',
-        interface='ib0',
+        jobs=60,
         cores=2,
-        processes=2,
-        memory='80GB',
-        walltime='04:00:00',
-        job_extra=['-e logs', '-o logs'],
-        env_extra=['cd $PBS_O_WORKDIR']
+        procs=2,
+        memory='160GB',
+        walltime='02:00:00',
+        tmp='/var/tmp',
+        log_dir='logs'
     )
 
-    cluster.adapt(minimum=10, maximum=80)
-    """
-    cluster = LocalCluster(n_workers=1, processes=True)
-    """
-
-    client = Client(cluster)
-
-    #log._initialize_logging(verbose=True)
-    init_logging_partial = partial(log._initialize_logging, verbose=True)
-
-    init_logging_partial()
-
-    ## Newly added workers should initialize logging
-    client.register_worker_callbacks(setup=init_logging_partial)
 
     ## List of populations to filter on
     populations = ['ACB']
 
+    variants = _filter_populations(populations)
+
+    _save_chromosomal_variants(variants, populations)
+    #dfio.save_distributed_dataframe_sync(variants, 'chr22-filtered-variants.tsv')
     ## dbSNP merge table
-    merge_table = merge.parse_merge_table()
+    #merge_table = merge.parse_merge_table()
 
-    #dels = filter_populations(client, pops=['ACB'])
-    dels = filter_populations2(
-        client, pops=['ACB'], chromosomes=range(1, 10), merge_table=merge_table
-    )
+    ##dels = filter_populations(client, pops=['ACB'])
+    #dels = filter_populations2(
+    #    client, pops=['ACB'], chromosomes=range(1, 10), merge_table=merge_table
+    #)
 
-    client.gather(dels)
+    #client.gather(dels)
 
     #wait(dels)
     #client.compute(dels)

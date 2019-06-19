@@ -5,7 +5,7 @@
 ## desc: Function wrappers for calculating LD using plink.
 
 from dask.distributed import Client
-from dask.distributed import as_completed
+from dask.distributed import get_client
 from dask_jobqueue import PBSCluster
 from dask.distributed import Future
 from dask.distributed import LocalCluster
@@ -19,8 +19,10 @@ import gzip
 import logging
 import pandas as pd
 import shutil
+import subprocess as sub
 import tempfile as tf
 
+from . import cluster
 from . import exceptions
 from . import globe
 from . import log
@@ -335,7 +337,12 @@ def filter_populations2(client: Client, pops: List[str], super_pop: bool = False
     return saved
 
 
-def calculate_ld(vcf: str, r2: float = 0.7) -> str:
+def _calculate_ld(
+    input: str,
+    output: str,
+    r2: float = 0.7,
+    plink: str = globe._exe_plink
+) -> bool:
     """
     Calculate linkage disequilibrium (LD) for all combinations of SNPs in the given VCF
     file.
@@ -345,105 +352,73 @@ def calculate_ld(vcf: str, r2: float = 0.7) -> str:
         r2:  LD r2 value to use for thresholding
     """
 
-    ## liftOver is really fucking picky about input and will refuse to do anything if
-    ## something is out of place (e.g. a header exists or there's an extra column), so
-    ## start by adding a row UID (index) to the frame
-    df = df.reset_index(drop=False)
-
-    ## We have to generate two separate files for lifting coordinates, one for the
-    ## right side coords and another for the left side
-    left_df = df[['chrom_left', 'start_left', 'end_left', 'index']]
-    right_df = df[['chrom_right', 'start_right', 'end_right', 'index']]
-
-    ## Temporary files for the liftOver input
-    left_in = tf.NamedTemporaryFile(delete=True).name
-    right_in = tf.NamedTemporaryFile(delete=True).name
-
-    ## Files for any unmapped coordinates
-    left_unmap = '%s.left.unmapped' % os.path.splitext(fout)[0]
-    right_unmap = '%s.right.unmapped' % os.path.splitext(fout)[0]
-
-    ## liftOver output
-    left_out = tf.NamedTemporaryFile(delete=True).name
-    right_out = tf.NamedTemporaryFile(delete=True).name
-
-    ## Save the temp input
-    left_df.to_csv(
-        left_in,
-        sep='\t',
-        header=False,
-        index=False,
-        columns=['chrom_left', 'start_left', 'end_left', 'index']
-    )
-
-    right_df.to_csv(
-        right_in,
-        sep='\t',
-        header=False,
-        index=False,
-        columns=['chrom_right', 'start_right', 'end_right', 'index']
-    )
-
-    ## Run liftover, usage: liftOver oldFile map.chain newFile unMapped
+    ## Run plink
     try:
-        sub.run([liftover, left_in, chain, left_out, left_unmap], stderr=sub.DEVNULL)
-        sub.run([liftover, right_in, chain, right_out, right_unmap], stderr=sub.DEVNULL)
+        sub.run([
+            plink,
+            '--threads',
+            '8',
+            '--vcf',
+            input,
+            '--ld-window-r2',
+            r2,
+            '--r2',
+            'inter-chr',
+            '--out',
+            output
+        ], stderr=sub.DEVNULL)
 
     except Exception as e:
-        log._logger.error('There was a problem running liftOver as a subprocess: %s', e)
+        log._logger.error('There was a problem running plink as a subprocess: %s', e)
+        raise
 
-    ## Now we need to read in the lifted coordinates
-    left_df = pd.read_csv(
-        left_out,
-        sep='\t',
-        header=None,
-        names=['chrom_left', 'start_left', 'end_left', 'index']
-    )
+    return True
 
-    right_df = pd.read_csv(
-        right_out,
-        sep='\t',
-        header=None,
-        names=['chrom_right', 'start_right', 'end_right', 'index']
-    )
 
-    ## Now we need to rejoin the halves
-    joined = left_df.join(right_df.set_index('index'), on='index', how='inner')
+def calculate_ld(vcf_dir: str, out_dir: str):
+    """
 
-    ## Add back the cell type, group, and target
-    joined = joined.join(
-        df[['cell_type', 'cell_group', 'assay_target', 'index']].set_index('index'),
-        on='index',
-        how='left'
-    )
+    :param vcf_dir:
+    :param out_dir:
+    :return:
+    """
 
-    ## Save the output
-    joined.drop(columns=['index']).to_csv(
-        fout,
-        sep='\t',
-        index=False,
-        columns=[
-            'chrom_left',
-            'start_left',
-            'end_left',
-            'chrom_right',
-            'start_right',
-            'end_right',
-            'cell_type',
-            'cell_group',
-            'assay_target'
-        ]
-    )
+    client = get_client()
+    futures = []
 
-    ## Delete temp files
-    try:
-        for tfl in [left_in, right_in, left_out, right_out]:
-            os.remove(tfl)
+    ## Get the list of distributed workers
+    workers = [w for w in client.scheduler_info()['workers'].keys()]
 
-    except Exception as e:
-        log._logger.error('There was a problem deleting the temp files: %s', e)
+    ## If we don't have enough workers so that each is assigned a single chromosome,
+    ## then some workers will have to do multiple chromosomes (assuming we're doing this
+    ## for all chromosomes)
+    if len(workers) < 23:
+        workers = (workers * 23)[:23]
 
-    return fout
+    ## Iterate through all the VCF files
+    for fp in Path(vcf_dir).iterdir():
+
+        ## If there are no more workers left in the list (means there are more than 23
+        ## VCF files in the directory) then we can't do anything
+        if not workers:
+            log._logger.error(
+                f'No workers are left for calculating LD, skipping {fp.as_posix()}'
+            )
+
+        ## Construct the output path
+        output = Path(out_dir, fp.stem)
+
+        ## Get a worker
+        worker = workers.pop()
+
+        ## Calculate LD on the worker
+        future = client.submit(
+            _calculate_ld, fp.as_posix(), output.as_posix(), workers=[worker]
+        )
+
+        futures.append(future)
+
+    return futures
 
 
 if __name__ == '__main__':
@@ -454,43 +429,23 @@ if __name__ == '__main__':
     #))
 
     ## Each job utilizes 2 python processes (1 core each, 25GB limit of RAM each)
-    cluster = PBSCluster(
+    client = cluster.initialize_cluster(
+        #hpc=True,
+        hpc=False,
         name='linkage-disequilibrium',
-        queue='batch',
-        interface='ib0',
-        cores=2,
-        processes=2,
-        memory='80GB',
-        walltime='02:00:00',
-        job_extra=['-e logs', '-o logs'],
-        env_extra=['cd $PBS_O_WORKDIR']
+        jobs=1,
+        cores=8,
+        procs=1,
+        workers=2,
+        memory='30GB',
+        walltime='04:00:00',
+        tmp='/var/tmp',
+        log_dir='logs'
     )
 
-    cluster.adapt(minimum=10, maximum=50)
+    print([w for w in client.scheduler_info()['workers'].keys()] * 2)
 
-    client = Client(cluster)
 
-    #log._initialize_logging(verbose=True)
-    init_logging_partial = partial(log._initialize_logging, verbose=True)
-
-    init_logging_partial()
-
-    ## Init logging on each worker
-    #client.run(log._initialize_logging, verbose=True)
-
-    ## Newly added workers should initialize logging
-    client.register_worker_callbacks(setup=init_logging_partial)
-
-    #dels = filter_populations(client, pops=['ACB'])
-    dels = filter_populations2(client, pops=['ACB'])
-
-    #client.gather(dels)
-    for fut in as_completed(dels):
-        del fut
-
-    #wait(dels)
-    #client.compute(dels)
-    #filter_populations_serial(client, pops=['ACB'])
 
     client.close()
 

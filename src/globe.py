@@ -35,15 +35,17 @@ _url_plink = 'http://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20190304.
 
 
 ## Output directories ##
+_dir_data = 'data'
 
 ## 1K Genome Project datasets
-_dir_1k_variants = 'data/1k-variants'
+_dir_1k_variants = Path(_dir_data, '1k-variants')
 
 ## Semi-processed variant calls
-_dir_1k_processed = 'data/1k-processed'
+_dir_1k_processed = Path(_dir_data, '1k-processed')
 
 ## External tools
-_dir_plink_bin = 'data/bin/plink'
+_dir_bin = Path(_dir_data, 'bin')
+_dir_plink_bin = Path(_dir_bin, 'plink')
 
 
 ## Output files ##
