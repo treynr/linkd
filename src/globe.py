@@ -43,6 +43,9 @@ _dir_1k_variants = Path(_dir_data, '1k-variants')
 ## Semi-processed variant calls
 _dir_1k_processed = Path(_dir_data, '1k-processed')
 
+## LD calls
+_dir_1k_ld = Path(_dir_data, '1k-ld')
+
 ## External tools
 _dir_bin = Path(_dir_data, 'bin')
 _dir_plink_bin = Path(_dir_bin, 'plink')
@@ -85,6 +88,7 @@ _exe_plink = Path(_dir_plink_bin, 'plink').as_posix()
 try:
     Path(_dir_1k_variants).mkdir(parents=True, exist_ok=True)
     Path(_dir_1k_processed).mkdir(parents=True, exist_ok=True)
+    Path(_dir_1k_ld).mkdir(parents=True, exist_ok=True)
     Path(_dir_plink_bin).mkdir(parents=True, exist_ok=True)
 
 except OSError as e:

@@ -106,6 +106,7 @@ def initialize_cluster(hpc: bool = True, verbose: bool = True, jobs: int = 10, *
     if hpc:
         cluster = initialize_pbs_cluster(**kwargs)
         cluster.scale_up(jobs)
+        #cluster.start_worker(n=jobs)
 
     else:
         cluster = initialize_local_cluster(**kwargs)

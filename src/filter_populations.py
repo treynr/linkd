@@ -155,7 +155,9 @@ def _read_vcf(fp: str, header: List[str], is_dir: bool = True) -> ddf.DataFrame:
     if is_dir:
         fp = Path(fp, '*.vcf').as_posix()
 
-    return ddf.read_csv(fp, sep='\t', comment='#', header=None, names=header)
+    return ddf.read_csv(
+        fp, sep='\t', comment='#', header=None, names=header, dtype={'CHROM': 'object'}
+    )
 
 
 def filter_vcf_populations_serial(
@@ -395,10 +397,12 @@ def filter_populations3(
     """
 
 def _filter_populations(
+    vcf_dir,
     populations: List[str],
+    popmap,
     super_pop: bool = False,
-    vcf_dir: str = globe._dir_1k_variants,
-    map_path: str = globe._fp_population_map
+    #vcf_dir: str = globe._dir_1k_variants,
+    #map_path: str = globe._fp_population_map
 ) -> ddf.DataFrame:
     """
 
@@ -409,20 +413,64 @@ def _filter_populations(
     """
 
     ## Read in the population mapping file
-    popmap = read_population_map(map_path)
+    #popmap = read_population_map(map_path)
 
     ## Determine the header fields for the given set of VCF files
-    header = _find_vcf_header(vcf_dir)
+    #header = _find_vcf_header(vcf_dir)
+    header = extract_header(vcf_dir)
 
     ## Read in all ~800GB of variants
-    variants = _read_vcf(vcf_dir, header, is_dir=True)
+    #variants = _read_vcf(vcf_dir, header, is_dir=True)
+    variants = _read_vcf(vcf_dir, header, is_dir=False)
     #variants = _read_vcf('data/1k-variants/chromosome-22.vcf', header, is_dir=False)
     #variants = _read_vcf('data/1k-variants/samples/chromosome-*.vcf', header, is_dir=False)
+
+    ## Repartition cause the initial ones kinda suck
+    #variants = variants.repartition(npartitions=500)
 
     ## Filter based on population structure
     variants = filter_vcf_populations(variants, popmap, populations, super_pop=super_pop)
 
     return variants
+
+
+def filter_populations(
+    populations: List[str],
+    super_pop: bool = False,
+    vcf_dir: str = globe._dir_1k_variants,
+    out_dir: str = globe._dir_1k_processed,
+    map_path: str = globe._fp_population_map
+) -> ddf.DataFrame:
+    """
+
+    :param populations:
+    :param super_pop:
+    :param vcf_dir:
+    :param map_path:
+    :return:
+    """
+
+    ## Read in the population mapping file
+    popmap = read_population_map(map_path)
+    ## Generate an output path based on the populations used for filtering
+    out_dir = Path(out_dir, '-'.join(populations).lower())
+
+    ## Make the directory if it doesn't exist
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    futures = []
+
+    #for vcf in Path(vcf_dir).iterdir():
+    for vcf in glob(Path(vcf_dir, '*.vcf').as_posix()):
+
+        output = Path(out_dir, Path(vcf).name)
+
+        df = _filter_populations(vcf, populations, popmap, super_pop=super_pop)
+        future = dfio.save_distributed_dataframe_async(df, output.as_posix())
+
+        futures.append(future)
+
+    return futures
 
 
 def _save_chromosomal_variants(
@@ -469,14 +517,21 @@ def _save_chromosomal_variants2(
 
     futures = []
 
+    log._logger.info('Saving variants')
+
     ## Faster to loop, filter by chromosome number, and save than using a groupby
     ## statement
-    for chrom in (range(1, 23) + ['X']):
+    for chrom in (list(range(1, 23)) + ['X']):
 
+        chrom = str(chrom)
         output = Path(out_dir, f'chromosome-{chrom}.vcf')
         future = dfio.save_distributed_dataframe_async(df[df.CHROM == chrom], output)
 
         futures.append(future)
+
+        #log._logger.info(f'Saving to {output}')
+
+    log._logger.info('Waiting for completion...')
 
     return futures
 
@@ -574,22 +629,28 @@ if __name__ == '__main__':
         hpc=True,
         #hpc=False,
         name='linkage-disequilibrium',
-        jobs=60,
-        cores=2,
-        procs=2,
+        jobs=90,
+        cores=3,
+        procs=3,
         memory='160GB',
-        walltime='02:00:00',
+        walltime='2:00:00',
         tmp='/var/tmp',
         log_dir='logs'
     )
 
+    log._initialize_logging(verbose=True)
 
     ## List of populations to filter on
-    populations = ['ACB']
+    #populations = ['ACB']
+    populations = ['EUR']
 
-    variants = _filter_populations(populations)
+    #variants = _filter_populations(populations)
+    #variants = client.persist(variants)
 
-    _save_chromosomal_variants(variants, populations)
+    #futures = _save_chromosomal_variants2(variants, populations)
+    futures = filter_populations(populations, super_pop=True)
+
+    client.gather(futures)
     #dfio.save_distributed_dataframe_sync(variants, 'chr22-filtered-variants.tsv')
     ## dbSNP merge table
     #merge_table = merge.parse_merge_table()

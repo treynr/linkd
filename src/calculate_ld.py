@@ -4,20 +4,17 @@
 ## file: calculate_ld.py
 ## desc: Function wrappers for calculating LD using plink.
 
+from collections import defaultdict as dd
 from dask.distributed import Client
 from dask.distributed import get_client
-from dask_jobqueue import PBSCluster
-from dask.distributed import Future
-from dask.distributed import LocalCluster
-from functools import partial
+from glob import glob
 from pathlib import Path
 from typing import List
-from zipfile import ZipFile
 import dask
 import dask.dataframe as ddf
-import gzip
 import logging
 import pandas as pd
+import re
 import shutil
 import subprocess as sub
 import tempfile as tf
@@ -340,6 +337,8 @@ def filter_populations2(client: Client, pops: List[str], super_pop: bool = False
 def _calculate_ld(
     input: str,
     output: str,
+    piece: int = 1,
+    pieces: int = 1,
     r2: float = 0.7,
     plink: str = globe._exe_plink
 ) -> bool:
@@ -357,11 +356,16 @@ def _calculate_ld(
         sub.run([
             plink,
             '--threads',
-            '8',
+            '3',
+            '--memory',
+            '40000',
+            '--parallel',
+            str(piece),
+            str(pieces),
             '--vcf',
             input,
             '--ld-window-r2',
-            r2,
+            str(r2),
             '--r2',
             'inter-chr',
             '--out',
@@ -375,7 +379,7 @@ def _calculate_ld(
     return True
 
 
-def calculate_ld(vcf_dir: str, out_dir: str):
+def calculate_ld(vcf_dir: str, out_dir: str, pieces: int = 6):
     """
 
     :param vcf_dir:
@@ -389,32 +393,89 @@ def calculate_ld(vcf_dir: str, out_dir: str):
     ## Get the list of distributed workers
     workers = [w for w in client.scheduler_info()['workers'].keys()]
 
-    ## If we don't have enough workers so that each is assigned a single chromosome,
-    ## then some workers will have to do multiple chromosomes (assuming we're doing this
-    ## for all chromosomes)
-    if len(workers) < 23:
-        workers = (workers * 23)[:23]
-
     ## Iterate through all the VCF files
     for fp in Path(vcf_dir).iterdir():
 
         ## If there are no more workers left in the list (means there are more than 23
         ## VCF files in the directory) then we can't do anything
-        if not workers:
-            log._logger.error(
-                f'No workers are left for calculating LD, skipping {fp.as_posix()}'
-            )
+        #if not workers:
+        #    log._logger.error(
+        #        f'No workers are left for calculating LD, skipping {fp.as_posix()}'
+        #    )
 
         ## Construct the output path
         output = Path(out_dir, fp.stem)
 
-        ## Get a worker
-        worker = workers.pop()
 
         ## Calculate LD on the worker
-        future = client.submit(
-            _calculate_ld, fp.as_posix(), output.as_posix(), workers=[worker]
-        )
+        #future = client.submit(
+        #    _calculate_ld, fp.as_posix(), output.as_posix(), workers=[worker]
+        #)
+        ## Break calculation into pieces for each worker
+        for p in range(1, pieces + 1):
+
+            ## Get a worker
+            worker = workers.pop()
+            ## Send him to the back of the worker queue
+            workers.append(worker)
+
+            future = client.submit(
+                _calculate_ld,
+                fp.as_posix(),
+                output.as_posix(),
+                piece=p,
+                pieces=pieces,
+                workers=[worker]
+            )
+
+            futures.append(future)
+
+    return futures
+
+
+def _format_merge_files(files: List[str]):
+    """
+    """
+
+    if not files:
+        return ''
+
+    ## Make a single output path
+    output = Path(files[0])
+    output = Path(output.parent, output.stem).as_posix()
+
+    ## Open the single concatenated output file
+    with open(output, 'w') as outfl:
+        ## Loop through input files...
+        for fpath in sorted(files):
+            ## Read each input file and format line x line
+            with open(fpath, 'r') as infl:
+                for ln in infl:
+                    ln = re.sub(r'^ +', '', ln)
+                    ln = re.sub(r' +', '\t', ln)
+
+                    outfl.write(ln)
+
+            ## Remove the file once we're done
+            Path(fpath).unlink()
+
+
+def format_merge_separate_files(out_dir: str = globe._dir_1k_ld):
+    """
+    """
+
+    client = get_client()
+    groups = dd(list)
+    futures = []
+
+    ## Glob all the separate linkage disequilibrium files in the output directory
+    for fl in glob(Path(out_dir, '*.ld.*').as_posix()):
+
+        ## Group all the same chromosome files together
+        groups[Path(fl).stem].append(fl)
+
+    for files in groups.values():
+        future = client.submit(_format_merge_files, files)
 
         futures.append(future)
 
@@ -428,24 +489,43 @@ if __name__ == '__main__':
     #    processes=True
     #))
 
+    log._initialize_logging(verbose=True)
+
     ## Each job utilizes 2 python processes (1 core each, 25GB limit of RAM each)
     client = cluster.initialize_cluster(
-        #hpc=True,
-        hpc=False,
+        hpc=True,
+        #hpc=False,
         name='linkage-disequilibrium',
-        jobs=1,
-        cores=8,
-        procs=1,
-        workers=2,
-        memory='30GB',
-        walltime='04:00:00',
+        jobs=90,
+        cores=9,
+        procs=3,
+        #workers=1,
+        memory='120GB',
+        walltime='48:00:00',
         tmp='/var/tmp',
         log_dir='logs'
     )
 
-    print([w for w in client.scheduler_info()['workers'].keys()] * 2)
+    #print([w for w in client.scheduler_info()['workers'].keys()] * 2)
+    outdir = Path(globe._dir_1k_ld, 'eur')
 
+    outdir.mkdir(exist_ok=True, parents=True)
 
+    futures = calculate_ld(
+        Path(globe._dir_1k_processed, 'eur').as_posix(),
+        outdir.as_posix()
+        #globe._dir_1k_ld
+    )
+
+    #format_merge_separate_files()
+
+    log._logger.info('Waiting...')
+
+    client.gather(futures)
+
+    saved = format_merge_separate_files()
+
+    client.gather(saved)
 
     client.close()
 

@@ -99,6 +99,12 @@ def _consolidate_separate_partitions(partitions, output: str) -> str:
 
                 ## If this is the first file being read then we include the header
                 if first:
+
+                    ## VCF files require the header to be prefix by a '#'
+                    header = next(ifl)
+                    header = '#' + header
+
+                    ofl.write(header)
                     ofl.write(ifl.read())
 
                     first = False
