@@ -42,14 +42,14 @@ def initialize_local_cluster(
 
 
 def initialize_pbs_cluster(
-    name: str = 'run',
+    name: str = 'linkage-disequilibrium',
     queue: str = 'batch',
     interface: str = 'ib0',
     cores: int = 2,
     procs: int = 2,
     workers: int = 40,
-    memory: str = '160GB',
-    walltime: str = '00:30:00',
+    memory: str = '230GB',
+    walltime: str = '03:00:00',
     env_extra: List[str] = ['cd $PBS_O_WORKDIR'],
     log_dir: str = 'logs',
     tmp: str = '/tmp',

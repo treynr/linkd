@@ -13,10 +13,13 @@ from typing import List
 from zipfile import ZipFile
 import gzip
 import logging
+import os
 import requests as req
 import shutil
+import stat
 import tempfile as tf
 
+from . import cluster
 from . import globe
 from . import log
 
@@ -47,7 +50,7 @@ def _download(url: str, output: str) -> None:
         raise
 
 
-def unzip(fp: str, output: str = None, force: bool = False, **kwargs) -> str:
+def _unzip(fp: str, output: str = None, force: bool = False, **kwargs) -> str:
     """
     Unzip a gzipped file to the given output path.
 
@@ -80,7 +83,7 @@ def unzip(fp: str, output: str = None, force: bool = False, **kwargs) -> str:
     return output
 
 
-def download_autosome_calls(
+def _download_autosome_calls(
     chromosome: int,
     output: str = globe._fp_1k_variant_autosome_gz,
     force: bool = False
@@ -126,7 +129,7 @@ def download_autosome_calls(
     return output
 
 
-def download_x_calls(output: str = globe._fp_1k_variant_x_gz, force: bool = False) -> str:
+def _download_x_calls(output: str = globe._fp_1k_variant_x_gz, force: bool = False) -> str:
     """
     Download compressed variant calls for the X chromosome.
 
@@ -155,7 +158,7 @@ def download_x_calls(output: str = globe._fp_1k_variant_x_gz, force: bool = Fals
     return output
 
 
-def download_y_calls(output: str = globe._fp_1k_variant_y_gz, force: bool = False):
+def _download_y_calls(output: str = globe._fp_1k_variant_y_gz, force: bool = False):
     """
     Download compressed variant calls for the Y chromosome.
 
@@ -181,7 +184,7 @@ def download_y_calls(output: str = globe._fp_1k_variant_y_gz, force: bool = Fals
     return output
 
 
-def download_dbsnp_merge_table(
+def _download_dbsnp_merge_table(
     url: str = globe._url_dbsnp150,
     output: str = globe._fp_compressed_dbsnp_table,
     force: bool = False
@@ -204,7 +207,7 @@ def download_dbsnp_merge_table(
     _download(url, output)
 
 
-def download_plink(
+def _download_plink(
     url: str = globe._url_plink,
     output: str = globe._dir_plink_bin
 ) -> str:
@@ -228,18 +231,10 @@ def download_plink(
     with ZipFile(temp_zip) as zfl:
         zfl.extractall(path=output)
 
-    ## Move files from bin to bedops directory
-    #for fl in Path(output, 'bin').iterdir():
-    #    shutil.copy(fl.as_posix(), Path(output).as_posix())
+    ## Make the binary executable
+    os.chmod(globe._exe_plink, os.stat(globe._exe_plink).st_mode | stat.S_IEXEC)
 
-    #try:
-    #    Path(temp_bz).unlink()
-    #    shutil.rmtree(Path(output, 'bin').as_posix())
-
-    #except Exception:
-    #    pass
-
-    return output
+    return globe._exe_plink
 
 
 def retrieve_variants(client: Client, force: bool = True) -> List[Future]:
@@ -257,16 +252,16 @@ def retrieve_variants(client: Client, force: bool = True) -> List[Future]:
     calls = []
 
     for chrom in range(1, 23):
-        call = client.submit(download_autosome_calls, chrom, force=force)
-        call = client.submit(unzip, call, force=force)
+        call = client.submit(_download_autosome_calls, chrom, force=force)
+        call = client.submit(_unzip, call, force=force)
 
         calls.append(call)
 
-    x_call = client.submit(download_x_calls, force=force)
-    x_call = client.submit(unzip, x_call, force=force)
+    x_call = client.submit(_download_x_calls, force=force)
+    x_call = client.submit(_unzip, x_call, force=force)
 
-    y_call = client.submit(download_y_calls, force=force)
-    y_call = client.submit(unzip, y_call, force=force)
+    y_call = client.submit(_download_y_calls, force=force)
+    y_call = client.submit(_unzip, y_call, force=force)
 
     calls.append(x_call)
     calls.append(y_call)
@@ -286,7 +281,7 @@ def retrieve_plink(client: Client, force: bool = True) -> Future:
         a future
     """
 
-    return client.submit(download_plink)
+    return client.submit(_download_plink)
 
 
 def retrieve_dbsnp_merge_table(client: Client, force: bool = True) -> Future:
@@ -301,10 +296,10 @@ def retrieve_dbsnp_merge_table(client: Client, force: bool = True) -> Future:
         a future containing the filepath to the merge table
     """
 
-    table = client.submit(download_dbsnp_merge_table, force=force)
+    table = client.submit(_download_dbsnp_merge_table, force=force)
 
     return client.submit(
-        unzip, globe._fp_compressed_dbsnp_table, force=force, depends=table
+        _unzip, globe._fp_compressed_dbsnp_table, force=force, depends=table
     )
 
 
@@ -320,12 +315,11 @@ if __name__ == '__main__':
     ## Init logging on each worker
     client.run(log._initialize_logging, verbose=True)
 
-    #calls = retrieve_variants(client, force=False)
-    #plink = retrieve_plink(client, force=False)
+    calls = retrieve_variants(client, force=False)
+    plink = retrieve_plink(client, force=False)
     merge = retrieve_dbsnp_merge_table(client, force=False)
 
-    #client.gather(calls + [plink, merge])
-    client.gather(merge)
+    client.gather(calls + [plink, merge])
 
     client.close()
 

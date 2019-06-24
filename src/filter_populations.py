@@ -364,7 +364,8 @@ def filter_vcf_populations(
     #popmap = read_population_map()
     samples = identify_excluded_samples(pops, popmap, super_pop=super_pop)
 
-    return df.drop(labels=samples, axis=1)
+    ## There are duplicate refSNP IDs which fucks plink up
+    return df.drop(labels=samples, axis=1).drop_duplicates(subset=['ID'])
 
 
 def _save_distributed_variants(df: pd.DataFrame, out_dir: str = globe._dir_1k_processed):
@@ -426,7 +427,7 @@ def _filter_populations(
     #variants = _read_vcf('data/1k-variants/samples/chromosome-*.vcf', header, is_dir=False)
 
     ## Repartition cause the initial ones kinda suck
-    #variants = variants.repartition(npartitions=500)
+    variants = variants.repartition(npartitions=1000)
 
     ## Filter based on population structure
     variants = filter_vcf_populations(variants, popmap, populations, super_pop=super_pop)

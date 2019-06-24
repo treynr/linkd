@@ -340,6 +340,7 @@ def _calculate_ld(
     piece: int = 1,
     pieces: int = 1,
     r2: float = 0.7,
+    threads: int = 3,
     plink: str = globe._exe_plink
 ) -> bool:
     """
@@ -356,7 +357,7 @@ def _calculate_ld(
         sub.run([
             plink,
             '--threads',
-            '3',
+            str(threads),
             '--memory',
             '40000',
             '--parallel',
@@ -379,7 +380,13 @@ def _calculate_ld(
     return True
 
 
-def calculate_ld(vcf_dir: str, out_dir: str, pieces: int = 6):
+def calculate_ld(
+    vcf_dir: str,
+    out_dir: str,
+    pieces: int = 6,
+    r2: float = 0.7,
+    threads: int = 3
+):
     """
 
     :param vcf_dir:
@@ -425,6 +432,8 @@ def calculate_ld(vcf_dir: str, out_dir: str, pieces: int = 6):
                 output.as_posix(),
                 piece=p,
                 pieces=pieces,
+                r2=r2,
+                threads=threads,
                 workers=[worker]
             )
 
