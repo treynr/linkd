@@ -157,7 +157,7 @@ def _read_vcf(fp: str, header: List[str], is_dir: bool = True) -> ddf.DataFrame:
 
     return ddf.read_csv(
         fp,
-        blocksize='350MB',
+        blocksize='500MB',
         sep='\t',
         comment='#',
         header=None,
@@ -378,12 +378,18 @@ def filter_vcf_populations(
     #        .drop_duplicates(subset=['ID'])
     #        .repartition(npartitions=300)
     #)
-    log._logger.info('Dropping samples...')
+    #log._logger.info('Dropping samples...')
     df = df.drop(labels=samples, axis=1)
-    log._logger.info('Dropping duplicates...')
-    df = df.drop_duplicates(subset=['ID'])
-    log._logger.info('Repartitioning...')
-    df = df.repartition(npartitions=300)
+    #log._logger.info('Dropping duplicates...')
+
+    ## Dask's drop_duplicates isn't the greatest (at least in my experience) for massive
+    ## datasets, so we set the index to be the rsid (expensive) then deduplicate using
+    ## map_partitions
+    #df = df.drop_duplicates(subset=['ID'])
+    df = df.set_index('ID', drop=False)
+    df = df.map_partitions(lambda d: d.drop_duplicates(subset='ID'))
+    df = df.reset_index(drop=True)
+    df = df.repartition(npartitions=200)
 
     return df
 
@@ -435,7 +441,7 @@ def _filter_populations(
 
     ## Repartition cause the initial ones kinda suck
     #variants = variants.repartition(npartitions=500)
-    print(f'Partitions {Path(vcf_dir).name}: {variants.npartitions}')
+    #print(f'Partitions {Path(vcf_dir).name}: {variants.npartitions}')
 
     ## Filter based on population structure
     variants = filter_vcf_populations(variants, popmap, populations, super_pop=super_pop)
@@ -512,7 +518,8 @@ def filter_populations_d(
     output = Path(out_dir, 'population.vcf')
 
     df = _filter_populations2(vcf_dir, populations, popmap, super_pop=super_pop)
-    log._logger.info('Saving dataframe...')
+    df = client.persist(df)
+    #log._logger.info('Saving dataframe...')
     futures = dfio.save_distributed_dataframe_async(df, output.as_posix())
 
     #futures.append(future)
@@ -545,6 +552,7 @@ def filter_populations(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     futures = []
+    client = get_client()
 
     #for vcf in Path(vcf_dir).iterdir():
     for vcf in glob(Path(vcf_dir, '*.vcf').as_posix()):
@@ -552,7 +560,8 @@ def filter_populations(
         output = Path(out_dir, Path(vcf).name)
 
         df = _filter_populations(vcf, populations, popmap, super_pop=super_pop)
-        log._logger.info('Saving dataframe...')
+        df = client.persist(df)
+        #log._logger.info('Saving dataframe...')
         future = dfio.save_distributed_dataframe_async(df, output.as_posix())
 
         futures.append(future)
