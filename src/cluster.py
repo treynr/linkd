@@ -48,7 +48,7 @@ def initialize_pbs_cluster(
     cores: int = 2,
     procs: int = 2,
     workers: int = 40,
-    memory: str = '230GB',
+    memory: str = '200GB',
     walltime: str = '03:00:00',
     env_extra: List[str] = ['cd $PBS_O_WORKDIR'],
     log_dir: str = 'logs',

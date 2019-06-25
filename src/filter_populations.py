@@ -156,7 +156,13 @@ def _read_vcf(fp: str, header: List[str], is_dir: bool = True) -> ddf.DataFrame:
         fp = Path(fp, '*.vcf').as_posix()
 
     return ddf.read_csv(
-        fp, sep='\t', comment='#', header=None, names=header, dtype={'CHROM': 'object'}
+        fp,
+        blocksize='350MB',
+        sep='\t',
+        comment='#',
+        header=None,
+        names=header,
+        dtype={'CHROM': 'object'}
     )
 
 
@@ -364,8 +370,22 @@ def filter_vcf_populations(
     #popmap = read_population_map()
     samples = identify_excluded_samples(pops, popmap, super_pop=super_pop)
 
-    ## There are duplicate refSNP IDs which fucks plink up
-    return df.drop(labels=samples, axis=1).drop_duplicates(subset=['ID'])
+    ## There are duplicate refSNP IDs which fucks plink up. We repartition after the drop
+    ## since data removal may unbalance the data spread
+    #return (
+    #    df.drop(labels=samples, axis=1)
+    #        #.repartition(npartitions=500)
+    #        .drop_duplicates(subset=['ID'])
+    #        .repartition(npartitions=300)
+    #)
+    log._logger.info('Dropping samples...')
+    df = df.drop(labels=samples, axis=1)
+    log._logger.info('Dropping duplicates...')
+    df = df.drop_duplicates(subset=['ID'])
+    log._logger.info('Repartitioning...')
+    df = df.repartition(npartitions=300)
+
+    return df
 
 
 def _save_distributed_variants(df: pd.DataFrame, out_dir: str = globe._dir_1k_processed):
@@ -383,19 +403,6 @@ def _save_distributed_variants(df: pd.DataFrame, out_dir: str = globe._dir_1k_pr
 
     return output
 
-
-def filter_populations3(
-    vdf: ddf.DataFrame,
-    populations: List[str],
-    super_pop: bool = False
-) -> ddf.DataFrame:
-    """
-
-    :param vdf:
-    :param populations:
-    :param super_pop:
-    :return:
-    """
 
 def _filter_populations(
     vcf_dir,
@@ -427,12 +434,90 @@ def _filter_populations(
     #variants = _read_vcf('data/1k-variants/samples/chromosome-*.vcf', header, is_dir=False)
 
     ## Repartition cause the initial ones kinda suck
-    variants = variants.repartition(npartitions=1000)
+    #variants = variants.repartition(npartitions=500)
+    print(f'Partitions {Path(vcf_dir).name}: {variants.npartitions}')
 
     ## Filter based on population structure
     variants = filter_vcf_populations(variants, popmap, populations, super_pop=super_pop)
 
     return variants
+
+
+def _filter_populations2(
+    vcf_dir,
+    populations: List[str],
+    popmap,
+    super_pop: bool = False,
+    #vcf_dir: str = globe._dir_1k_variants,
+    #map_path: str = globe._fp_population_map
+) -> ddf.DataFrame:
+    """
+
+    :param populations:
+    :param super_pop:
+    :param vcf_dir:
+    :return:
+    """
+
+    ## Read in the population mapping file
+    #popmap = read_population_map(map_path)
+
+    ## Determine the header fields for the given set of VCF files
+    header = _find_vcf_header(vcf_dir)
+
+    ## Read in all ~800GB of variants
+    #variants = _read_vcf(vcf_dir, header, is_dir=True)
+    variants = _read_vcf(vcf_dir, header, is_dir=True)
+    #variants = _read_vcf('data/1k-variants/chromosome-22.vcf', header, is_dir=False)
+    #variants = _read_vcf('data/1k-variants/samples/chromosome-*.vcf', header, is_dir=False)
+
+    ## Repartition cause the initial ones kinda suck
+    #variants = variants.repartition(npartitions=500)
+    print(f'Partitions {Path(vcf_dir).name}: {variants.npartitions}')
+
+    ## Filter based on population structure
+    variants = filter_vcf_populations(variants, popmap, populations, super_pop=super_pop)
+
+    return variants
+
+
+def filter_populations_d(
+    populations: List[str],
+    super_pop: bool = False,
+    vcf_dir: str = globe._dir_1k_variants,
+    out_dir: str = globe._dir_1k_processed,
+    map_path: str = globe._fp_population_map
+) -> ddf.DataFrame:
+    """
+
+    :param populations:
+    :param super_pop:
+    :param vcf_dir:
+    :param map_path:
+    :return:
+    """
+
+    ## Read in the population mapping file
+    popmap = read_population_map(map_path)
+    ## Generate an output path based on the populations used for filtering
+    out_dir = Path(out_dir, '-'.join(populations).lower())
+
+    ## Make the directory if it doesn't exist
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    futures = []
+
+    #for vcf in Path(vcf_dir).iterdir():
+
+    output = Path(out_dir, 'population.vcf')
+
+    df = _filter_populations2(vcf_dir, populations, popmap, super_pop=super_pop)
+    log._logger.info('Saving dataframe...')
+    futures = dfio.save_distributed_dataframe_async(df, output.as_posix())
+
+    #futures.append(future)
+
+    return futures
 
 
 def filter_populations(
@@ -467,6 +552,7 @@ def filter_populations(
         output = Path(out_dir, Path(vcf).name)
 
         df = _filter_populations(vcf, populations, popmap, super_pop=super_pop)
+        log._logger.info('Saving dataframe...')
         future = dfio.save_distributed_dataframe_async(df, output.as_posix())
 
         futures.append(future)
@@ -634,7 +720,7 @@ if __name__ == '__main__':
         cores=3,
         procs=3,
         memory='160GB',
-        walltime='2:00:00',
+        walltime='03:00:00',
         tmp='/var/tmp',
         log_dir='logs'
     )

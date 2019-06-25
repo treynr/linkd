@@ -125,7 +125,9 @@ def main():
             hpc=True,
             cores=3,
             procs=3,
-            jobs=args.jobs,
+            #jobs=90,
+            jobs=27,
+            tmp='/var/tmp',
             verbose=args.verbose
         )
 
@@ -144,7 +146,7 @@ def main():
     log._logger.info('Filtering 1KGP variant calls using the following populations:')
     log._logger.info(', '.join(populations))
 
-    filtered = filtpop.filter_populations(populations, super_pop=args.super_population)
+    filtered = filtpop.filter_populations_d(populations, super_pop=args.super_population)
 
     client.gather(filtered)
 

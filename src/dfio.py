@@ -67,8 +67,10 @@ def _write_dataframe_partitions(df: ddf.DataFrame) -> str:
     paths = []
 
     for i, partition in enumerate(df.to_delayed()):
+        log._logger.info(f'Tokenizing partition {i}')
         path = Path(outdir, tokenize(partition.key)).resolve().as_posix()
 
+        log._logger.info(f'Submitting partition {i}')
         paths.append(client.submit(
             _write_dataframe_partition, client.compute(partition), path
         ))
@@ -174,6 +176,8 @@ def save_distributed_dataframe_async(
 
     client = get_client() if client is None else client
 
+    log._logger.info('Writing partitions...')
     path_futures = _write_dataframe_partitions(df)
 
+    log._logger.info('Consolidating partitions...')
     return client.submit(_consolidate_separate_partitions, path_futures, output)
