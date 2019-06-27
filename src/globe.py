@@ -50,6 +50,9 @@ _dir_1k_ld = Path(_dir_data, '1k-ld')
 _dir_bin = Path(_dir_data, 'bin')
 _dir_plink_bin = Path(_dir_bin, 'plink')
 
+## Work directory
+_dir_work = Path(_dir_data, 'work')
+
 
 ## Output files ##
 
@@ -89,6 +92,7 @@ try:
     Path(_dir_1k_variants).mkdir(parents=True, exist_ok=True)
     Path(_dir_1k_processed).mkdir(parents=True, exist_ok=True)
     Path(_dir_1k_ld).mkdir(parents=True, exist_ok=True)
+    Path(_dir_work).mkdir(parents=True, exist_ok=True)
     Path(_dir_plink_bin).mkdir(parents=True, exist_ok=True)
 
 except OSError as e:

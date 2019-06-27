@@ -17,8 +17,8 @@ from zipfile import ZipFile
 from glob import glob
 import dask
 import dask.dataframe as ddf
-import gzip
 import logging
+import numpy as np
 import pandas as pd
 import shutil
 import tempfile as tf
@@ -46,6 +46,65 @@ def read_population_map(fp: str = globe._fp_population_map) -> pd.DataFrame:
     """
 
     return pd.read_csv(fp, sep='\t')[['sample', 'pop', 'super_pop']]
+
+
+def read_merge_table(fp: str = globe._fp_dbsnp_table) -> pd.DataFrame:
+    """
+    Parse the NCBI dbSNP merge table. A description of the table can be found here:
+    https://www.ncbi.nlm.nih.gov/projects/SNP/snp_db_table_description.cgi?t=RsMergeArch
+
+    arguments
+        fp: filepath to the merge table
+
+    returns
+        a dataframe of the merge table
+    """
+
+    #df = pd.read_csv(
+    df = ddf.read_csv(
+        fp,
+        sep='\t',
+        header=None,
+        names=[
+            'high',
+            'low',
+            'build',
+            'orien',
+            'created',
+            'updated',
+            'current',
+            'o2c',
+            'comment'
+        ]
+    )
+
+    return df[['high', 'current']]
+
+
+def merge_snps(merge: ddf.DataFrame, snps: ddf.DataFrame) -> pd.DataFrame:
+    """
+    Update SNP identifiers, where possible, for the given SNP dataset using
+    the dbSNP merge table.
+
+    arguments
+        merge: dataframe containing the dbSNP merge table
+        eqtls: dataframe containing processed SNPs
+
+    returns
+        a dataframe with updated SNP IDs
+    """
+
+    ## Strip out the rs prefix from the SNP identifier and convert the ID to an integer
+    snps['ID'] = snps.ID.str.strip(to_strip='rs')
+    snps['ID'] = snps.ID.astype(np.int64)
+
+    ## Join the dataframes on the old SNP identifiers (i.e. 'high' in the merge table)
+    ## and set the refSNP ID to the new version if one exists
+    snps = snps.merge(merge, how='left', left_on='ID', right_on='high')
+    snps['ID'] = snps.ID.mask(snps.current.notnull(), snps.current)
+    snps['ID'] = 'rs' + snps.ID.astype(str)
+
+    return snps
 
 
 def show_population_groups(df: pd.DataFrame) -> None:
@@ -379,13 +438,43 @@ def filter_vcf_populations(
     #        .repartition(npartitions=300)
     #)
     #log._logger.info('Dropping samples...')
-    df = df.drop(labels=samples, axis=1)
-    #log._logger.info('Dropping duplicates...')
 
-    ## Dask's drop_duplicates isn't the greatest (at least in my experience) for massive
-    ## datasets, so we set the index to be the rsid (expensive) then deduplicate using
-    ## map_partitions
-    #df = df.drop_duplicates(subset=['ID'])
+    ## Remove samples from populations we're not interested in
+    df = df.drop(labels=samples, axis=1)
+
+    return df
+
+
+def separate_joined_snps(df):
+    """
+
+    :param df:
+    :return:
+    """
+
+    return df.map_partitions(
+        lambda d: d.drop('ID', axis=1).join(
+            d.ID.str.split(';', expand=True)
+                .stack()
+                .reset_index(drop=True, level=1)
+                .rename('ID')
+        )
+    )
+
+
+def filter_on_refsnps(df):
+    """
+
+    :param df:
+    :return:
+    """
+
+    ## Remove anything lacking a refSNP ID
+    df = df[df.ID.str.contains('rs\d+')]
+
+    ## Dask's drop_duplicates isn't always the greatest (at least in my experience) for
+    ## massive datasets, so we set the index to be the rsid (expensive) then
+    ## deduplicate using map_partitions
     df = df.set_index('ID', drop=False)
     df = df.map_partitions(lambda d: d.drop_duplicates(subset='ID'))
     df = df.reset_index(drop=True)
@@ -414,6 +503,7 @@ def _filter_populations(
     vcf_dir,
     populations: List[str],
     popmap,
+    merge,
     super_pop: bool = False,
     #vcf_dir: str = globe._dir_1k_variants,
     #map_path: str = globe._fp_population_map
@@ -445,6 +535,16 @@ def _filter_populations(
 
     ## Filter based on population structure
     variants = filter_vcf_populations(variants, popmap, populations, super_pop=super_pop)
+
+    ## Some variant calls actually contain multiple SNPs in a single row, so we
+    ## separate these out
+    variants = separate_joined_snps(variants)
+
+    ## Filter duplicate refSNPs and things that don't have a refSNP ID
+    variants = filter_on_refsnps(variants)
+
+    ## Update SNP IDs
+    variants = merge_snps(merge, variants)
 
     return variants
 
@@ -530,9 +630,11 @@ def filter_populations_d(
 def filter_populations(
     populations: List[str],
     super_pop: bool = False,
+    #merge: bool = True,
     vcf_dir: str = globe._dir_1k_variants,
     out_dir: str = globe._dir_1k_processed,
-    map_path: str = globe._fp_population_map
+    map_path: str = globe._fp_population_map,
+    merge_path: str = globe._fp_dbsnp_table
 ) -> ddf.DataFrame:
     """
 
@@ -545,6 +647,9 @@ def filter_populations(
 
     ## Read in the population mapping file
     popmap = read_population_map(map_path)
+    ## Read in the merge table
+    merge = read_merge_table(merge_path)
+
     ## Generate an output path based on the populations used for filtering
     out_dir = Path(out_dir, '-'.join(populations).lower())
 
@@ -559,12 +664,13 @@ def filter_populations(
 
         output = Path(out_dir, Path(vcf).name)
 
-        df = _filter_populations(vcf, populations, popmap, super_pop=super_pop)
+        df = _filter_populations(vcf, populations, popmap, merge, super_pop=super_pop)
         df = client.persist(df)
         #log._logger.info('Saving dataframe...')
         future = dfio.save_distributed_dataframe_async(df, output.as_posix())
 
         futures.append(future)
+        break
 
     return futures
 

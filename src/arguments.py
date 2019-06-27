@@ -36,6 +36,12 @@ def _register_args(parser: ArgumentParser) -> ArgumentParser:
     )
 
     parser.add_argument(
+        'output',
+        nargs='?',
+        help='output LD file'
+    )
+
+    parser.add_argument(
         '-s',
         '--super',
         action='store_true',
@@ -57,6 +63,20 @@ def _register_args(parser: ArgumentParser) -> ArgumentParser:
         action='store_true',
         dest='no_download',
         help='skip retrieving external tools and 1KGP variant calls'
+    )
+
+    parser.add_argument(
+        '--skip-filtering',
+        action='store_true',
+        dest='no_filter',
+        help='skip population filtering'
+    )
+
+    parser.add_argument(
+        '--skip-ld',
+        action='store_true',
+        dest='no_ld',
+        help='skip LD calculations'
     )
 
     perf_group = parser.add_argument_group('performance')

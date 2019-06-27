@@ -4,13 +4,15 @@
 ## file: cli.py
 ## desc: CLI functions and most of the application logic.
 
-import argparse
-import logging
-import pandas as pd
 from pathlib import Path
 from typing import List
+import logging
+import pandas as pd
+import re
+import tempfile as tf
 
 from . import arguments
+from . import calculate_ld as ld
 from . import cluster
 from . import filter_populations as filtpop
 from . import globe
@@ -18,41 +20,6 @@ from . import log
 from . import retrieve
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
-
-
-def manipulate_variants(args: argparse.Namespace):
-    """
-
-    :param args:
-    :return:
-    """
-
-    if args.directory:
-        variant_files = Path(args.input).iterdir()
-    else:
-        variant_files = [Path(args.input).resolve().as_posix()]
-
-    for fl in variant_files:
-
-        if not Path(fl).exists():
-            log._logger.warning(f'Variant filepath ({fl}) does not exist, skipping...')
-            continue
-
-        log._logger.info(f'Loading variant metadata from {fl}...')
-
-        loaded = db.load_variants2(fl, args.build)
-
-        log._logger.info(f'Loaded {loaded} nodes...')
-
-
-def handle_subcommand(args: argparse.Namespace):
-    """
-
-    :return:
-    """
-
-    if args.subcommand == globe._subcmd_variation:
-        manipulate_variants(args)
 
 
 def _parse_rsid_list(input: str) -> pd.Series:
@@ -85,7 +52,22 @@ def _parse_rsid_list(input: str) -> pd.Series:
 
     snp_col = snp_col[0]
 
-    return df.iloc[:, snp_col]
+    return df.loc[:, snp_col]
+
+
+def _make_rsid_file(snps: pd.Series, base: str = globe._dir_work) -> str:
+    """
+
+    :param snps:
+    :param base:
+    :return:
+    """
+
+    output = tf.NamedTemporaryFile(dir=base, delete=True)
+
+    snps.to_csv(output.name, header=False, index=False, sep='\t')
+
+    return output
 
 
 def _separate_population_list(s: str) -> List[str]:
@@ -101,6 +83,20 @@ def _separate_population_list(s: str) -> List[str]:
     """
 
     return [ss.strip().upper() for ss in s.split(',')]
+
+
+def _make_population_path(
+    populations: List[str],
+    base: str = globe._dir_1k_processed
+) -> Path:
+    """
+
+    :param populations:
+    :param base:
+    :return:
+    """
+
+    return Path(base, '-'.join(populations).lower())
 
 
 def main():
@@ -123,11 +119,11 @@ def main():
         ## the correct amount later on
         client = cluster.initialize_cluster(
             hpc=True,
-            cores=3,
-            procs=3,
-            jobs=90,
-            #jobs=27,
-            #jobs=12,
+            #cores=4,
+            cores=2,
+            procs=2,
+            jobs=10,
+            #jobs=10,
             tmp='/var/tmp',
             verbose=args.verbose
         )
@@ -141,18 +137,51 @@ def main():
 
         client.gather(calls + [plink, merge])
 
+    else:
+        log._logger.info('Skipping dataset retrieval...')
+
     populations = _separate_population_list(args.populations)
+    pop_path = _make_population_path(populations)
     snps = _parse_rsid_list(args.rsids)
+    snps_file = _make_rsid_file(snps)
 
-    log._logger.info('Filtering 1KGP variant calls using the following populations:')
-    log._logger.info(', '.join(populations))
+    if not args.no_filter:
+        log._logger.info('Filtering 1KGP variant calls using the following populations:')
+        log._logger.info(', '.join(populations))
 
-    filtered = filtpop.filter_populations(populations, super_pop=args.super_population)
+        filtered = filtpop.filter_populations(populations, super_pop=args.super_population)
 
-    client.gather(filtered)
+        client.gather(filtered)
 
-    client.close()
+    else:
+        log._logger.info('Skipping population filtering...')
 
+    if not pop_path.exists():
+        log._logger.error('Filtered population datasets are missing.')
+        exit(1)
+
+    if not args.no_ld:
+        log._logger.info('Calculating LD...')
+
+        ld_scores = ld.calculate_ld(
+            pop_path.as_posix(),
+            snps_file.name,
+            r2=args.rsquared,
+            threads=(args.cores // args.processes)
+        )
+
+        ld_scores = client.gather(ld_scores)
+
+        client.close()
+
+        log._logger.info('Formatting output...')
+
+        ld.format_merge_files(ld_scores, args.output)
+
+    else:
+        log._logger.info('Skipping LD calculations...')
+
+    log._logger.info('Done...')
 
 if __name__ == '__main__':
     main()
