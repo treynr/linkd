@@ -120,9 +120,9 @@ def main():
         client = cluster.initialize_cluster(
             hpc=True,
             #cores=4,
-            cores=2,
-            procs=2,
-            jobs=10,
+            cores=3,
+            procs=3,
+            jobs=60,
             #jobs=10,
             tmp='/var/tmp',
             verbose=args.verbose

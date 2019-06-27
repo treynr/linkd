@@ -60,11 +60,11 @@ def read_merge_table(fp: str = globe._fp_dbsnp_table) -> pd.DataFrame:
         a dataframe of the merge table
     """
 
-    #df = pd.read_csv(
     df = ddf.read_csv(
         fp,
         sep='\t',
         header=None,
+        assume_missing=True,
         names=[
             'high',
             'low',
@@ -104,7 +104,7 @@ def merge_snps(merge: ddf.DataFrame, snps: ddf.DataFrame) -> pd.DataFrame:
     snps['ID'] = snps.ID.mask(snps.current.notnull(), snps.current)
     snps['ID'] = 'rs' + snps.ID.astype(str)
 
-    return snps
+    return snps.drop(labels=['high', 'current'], axis=1)
 
 
 def show_population_groups(df: pd.DataFrame) -> None:
@@ -536,6 +536,9 @@ def _filter_populations(
     ## Filter based on population structure
     variants = filter_vcf_populations(variants, popmap, populations, super_pop=super_pop)
 
+    ## Store the new header after samples have been removed
+    header = variants.columns
+
     ## Some variant calls actually contain multiple SNPs in a single row, so we
     ## separate these out
     variants = separate_joined_snps(variants)
@@ -545,6 +548,9 @@ def _filter_populations(
 
     ## Update SNP IDs
     variants = merge_snps(merge, variants)
+
+    ## Restore the original header ordering which is disrupted after our merge
+    variants = variants[header]
 
     return variants
 
@@ -648,7 +654,7 @@ def filter_populations(
     ## Read in the population mapping file
     popmap = read_population_map(map_path)
     ## Read in the merge table
-    merge = read_merge_table(merge_path)
+    merge = read_merge_table(merge_path).persist()
 
     ## Generate an output path based on the populations used for filtering
     out_dir = Path(out_dir, '-'.join(populations).lower())
