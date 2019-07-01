@@ -464,13 +464,21 @@ def separate_joined_snps(df):
 
 def filter_on_refsnps(df):
     """
+    Removes anything lacking a refSNP ID.
 
     :param df:
     :return:
     """
 
-    ## Remove anything lacking a refSNP ID
-    df = df[df.ID.str.contains('rs\d+')]
+    return df[df.ID.str.contains('rs\d+')]
+
+
+def remove_duplicate_refsnps(df):
+    """
+
+    :param df:
+    :return:
+    """
 
     ## Dask's drop_duplicates isn't always the greatest (at least in my experience) for
     ## massive datasets, so we set the index to be the rsid (expensive) then
@@ -543,11 +551,14 @@ def _filter_populations(
     ## separate these out
     variants = separate_joined_snps(variants)
 
-    ## Filter duplicate refSNPs and things that don't have a refSNP ID
+    ## Filter things that don't have a refSNP ID
     variants = filter_on_refsnps(variants)
 
     ## Update SNP IDs
     variants = merge_snps(merge, variants)
+
+    ## Get rid of potential dups
+    variants = remove_duplicate_refsnps(variants)
 
     ## Restore the original header ordering which is disrupted after our merge
     variants = variants[header]
@@ -665,6 +676,8 @@ def filter_populations(
     futures = []
     client = get_client()
 
+    chroms = ['chromosome-2.vcf', 'chromosome-8.vcf', 'chromosome-10.vcf', 'chromosome-15.vcf', 'chromosome-22.vcf', ]
+
     #for vcf in Path(vcf_dir).iterdir():
     for vcf in glob(Path(vcf_dir, '*.vcf').as_posix()):
 
@@ -676,7 +689,6 @@ def filter_populations(
         future = dfio.save_distributed_dataframe_async(df, output.as_posix())
 
         futures.append(future)
-        break
 
     return futures
 

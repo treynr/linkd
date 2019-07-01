@@ -119,11 +119,12 @@ def main():
         ## the correct amount later on
         client = cluster.initialize_cluster(
             hpc=True,
-            #cores=4,
-            cores=3,
+            cores=9,
             procs=3,
             jobs=60,
-            #jobs=10,
+            #cores=5,
+            #procs=5,
+            #jobs=100,
             tmp='/var/tmp',
             verbose=args.verbose
         )
