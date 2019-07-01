@@ -82,6 +82,7 @@ _fp_dbsnp_table = Path('data/dbsnp-merge-table.tsv').as_posix()
 _exe_plink = Path(_dir_plink_bin, 'plink').as_posix()
 
 
+
 ## Bedops executables
 #_exe_bedops_bedmap = Path(_dir_bedops_bin, 'bedmap').as_posix()
 #_exe_bedops_bedops = Path(_dir_bedops_bin, 'bedops').as_posix()

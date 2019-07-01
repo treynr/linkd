@@ -4,7 +4,9 @@
 ## file: cli.py
 ## desc: CLI functions and most of the application logic.
 
+from dask.distributed import get_client
 from pathlib import Path
+from time import sleep
 from typing import List
 import logging
 import pandas as pd
@@ -99,6 +101,25 @@ def _make_population_path(
     return Path(base, '-'.join(populations).lower())
 
 
+def _wait_for_workers(n):
+
+    client = get_client()
+    waits = 0
+
+    while True:
+        workers =  client.scheduler_info()["workers"].keys()
+
+        sleep(3)
+
+        if len(workers) > 0:
+            log._logger.info(f'Started {len(workers)} workers...')
+
+        if len(workers) >= n:
+        #if len(workers) > 0:
+            log._logger.info(f'All {len(workers)} workers have started...')
+            break
+
+
 def main():
     """
 
@@ -115,13 +136,15 @@ def main():
             hpc=False, workers=args.processes, verbose=args.verbose
         )
     else:
-        ## The first part doesn't need multiple cores, we'll reinit the cluster with
+        ## The first part doesn't need multiple cores, we'll re-init the cluster with
         ## the correct amount later on
         client = cluster.initialize_cluster(
             hpc=True,
-            cores=9,
-            procs=3,
-            jobs=60,
+            cores=8,
+            procs=2,
+            jobs=24,
+            #jobs=4,
+            walltime='10:00:00',
             #cores=5,
             #procs=5,
             #jobs=100,
@@ -162,9 +185,13 @@ def main():
         exit(1)
 
     if not args.no_ld:
+        log._logger.info('Waiting for workers to start...')
+
+        _wait_for_workers(24)
+
         log._logger.info('Calculating LD...')
 
-        ld_scores = ld.calculate_ld(
+        ld_scores = ld.calculate_ld2(
             pop_path.as_posix(),
             snps_file.name,
             r2=args.rsquared,

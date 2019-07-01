@@ -50,6 +50,8 @@ def _calculate_ld(
             plink,
             '--threads',
             str(threads),
+            '--memory',
+            '20480',
             '--vcf',
             input,
             '--ld-snp-list',
@@ -88,7 +90,7 @@ def calculate_ld(
     futures = []
 
     ## Get the list of distributed workers
-    workers = [w for w in client.scheduler_info()['workers'].keys()]
+    #workers = [w for w in client.scheduler_info()['workers'].keys()]
 
     ## Iterate through all the VCF files
     for fp in Path(vcf_dir).iterdir():
@@ -117,6 +119,53 @@ def calculate_ld(
     return futures
 
 
+def calculate_ld2(
+    vcf_dir: str,
+    snps: str,
+    out_dir: str = globe._dir_work,
+    r2: float = 0.7,
+    threads: int = 3
+):
+    """
+
+    :param vcf_dir:
+    :param out_dir:
+    :return:
+    """
+
+    client = get_client()
+    futures = []
+
+    ## Get the list of distributed workers
+    workers = [w for w in client.scheduler_info()['workers'].keys()]
+
+    ## Iterate through all the VCF files
+    for fp in Path(vcf_dir).iterdir():
+
+        ## Construct the output path
+        output = Path(out_dir, '-'.join([fp.stem, Path(snps).stem]))
+
+        ## Get a worker
+        worker = workers.pop(0)
+        ## Send him to the back of the worker queue
+        workers.append(worker)
+
+        ## Calculate LD on the worker
+        future = client.submit(
+            _calculate_ld,
+            fp.as_posix(),
+            output.as_posix(),
+            snps,
+            r2=r2,
+            threads=threads,
+            workers=[worker]
+        )
+
+        futures.append(future)
+
+    return futures
+
+
 def format_merge_files(files: List[str], output: str, delete: bool = True) -> str:
     """
     """
@@ -131,6 +180,10 @@ def format_merge_files(files: List[str], output: str, delete: bool = True) -> st
 
         ## Loop through input files...
         for fpath in sorted(files):
+
+            if not Path(fpath).exists():
+                log._logger.warning(f'{Path(fpath.name)} does not exist, skipping...')
+                continue
 
             ## Read each input file and format line x line
             with open(fpath, 'r') as infl:
