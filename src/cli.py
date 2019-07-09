@@ -101,12 +101,18 @@ def _make_population_path(
     return Path(base, '-'.join(populations).lower())
 
 
-def _wait_for_workers(n):
+def _wait_for_workers(n, limit=30):
 
     client = get_client()
     waits = 0
 
     while True:
+        if waits > limit:
+            log._logger.warning(
+                'Waiting time limit has been reached, starting without additional workers'
+            )
+            break
+
         workers =  client.scheduler_info()["workers"].keys()
 
         sleep(3)
@@ -115,9 +121,10 @@ def _wait_for_workers(n):
             log._logger.info(f'Started {len(workers)} workers...')
 
         if len(workers) >= n:
-        #if len(workers) > 0:
             log._logger.info(f'All {len(workers)} workers have started...')
             break
+
+        waits += 1
 
 
 def main():
@@ -141,10 +148,10 @@ def main():
         client = cluster.initialize_cluster(
             hpc=True,
             cores=8,
-            procs=2,
-            jobs=24,
+            procs=4,
+            jobs=40,
             #jobs=4,
-            walltime='10:00:00',
+            walltime='02:00:00',
             #cores=5,
             #procs=5,
             #jobs=100,
@@ -187,7 +194,7 @@ def main():
     if not args.no_ld:
         log._logger.info('Waiting for workers to start...')
 
-        _wait_for_workers(24)
+        _wait_for_workers(40)
 
         log._logger.info('Calculating LD...')
 
