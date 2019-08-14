@@ -484,9 +484,10 @@ def remove_duplicate_refsnps(df):
     ## massive datasets, so we set the index to be the rsid (expensive) then
     ## deduplicate using map_partitions
     df = df.set_index('ID', drop=False)
-    df = df.map_partitions(lambda d: d.drop_duplicates(subset='ID'))
+    #df = df.map_partitions(lambda d: d.drop_duplicates(subset='ID'))
+    df = df.drop_duplicates(subset='ID', split_out=200)
     df = df.reset_index(drop=True)
-    df = df.repartition(npartitions=200)
+    #df = df.repartition(npartitions=200)
 
     return df
 

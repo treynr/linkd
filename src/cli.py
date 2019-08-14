@@ -147,11 +147,12 @@ def main():
         ## the correct amount later on
         client = cluster.initialize_cluster(
             hpc=True,
-            cores=8,
-            procs=4,
-            jobs=40,
+            #cores=8,
+            cores=6,
+            procs=6,
+            jobs=60,
             #jobs=4,
-            walltime='02:00:00',
+            walltime='08:00:00',
             #cores=5,
             #procs=5,
             #jobs=100,
