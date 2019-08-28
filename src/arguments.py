@@ -6,6 +6,7 @@
 
 import argparse
 import logging
+import click
 from argparse import ArgumentParser
 
 from . import globe
@@ -13,73 +14,17 @@ from . import globe
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 
-def _register_args(parser: ArgumentParser) -> ArgumentParser:
+def _register_args() -> ArgumentParser:
     """
 
-    :param parser:
+    :param common:
     :return:
     """
 
     ## Options common to all (sub)parsers
-    parser = ArgumentParser(add_help=False)
+    common = ArgumentParser(add_help=False)
 
-    parser.add_argument(
-        'populations',
-        nargs='?',
-        help='comma separated list of populations to filter on'
-    )
-
-    parser.add_argument(
-        'rsids',
-        nargs='?',
-        help='file containing list of refSNP IDs'
-    )
-
-    parser.add_argument(
-        'output',
-        nargs='?',
-        help='output LD file'
-    )
-
-    parser.add_argument(
-        '-s',
-        '--super',
-        action='store_true',
-        dest='super_population',
-        help='the given population list is a super population'
-    )
-
-    parser.add_argument(
-        '--r2',
-        action='store',
-        default=0.7,
-        dest='rsquared',
-        type=float,
-        help='r2 LD threshold'
-    )
-
-    parser.add_argument(
-        '--skip-download',
-        action='store_true',
-        dest='no_download',
-        help='skip retrieving external tools and 1KGP variant calls'
-    )
-
-    parser.add_argument(
-        '--skip-filtering',
-        action='store_true',
-        dest='no_filter',
-        help='skip population filtering'
-    )
-
-    parser.add_argument(
-        '--skip-ld',
-        action='store_true',
-        dest='no_ld',
-        help='skip LD calculations'
-    )
-
-    perf_group = parser.add_argument_group('performance')
+    perf_group = common.add_argument_group('performance')
 
     perf_group.add_argument(
         '-l',
@@ -93,7 +38,7 @@ def _register_args(parser: ArgumentParser) -> ArgumentParser:
         '-c',
         '--cores',
         action='store',
-        default=9,
+        default=5,
         dest='cores',
         metavar='N',
         type=int,
@@ -104,7 +49,7 @@ def _register_args(parser: ArgumentParser) -> ArgumentParser:
         '-p',
         '--processes',
         action='store',
-        default=3,
+        default=5,
         dest='processes',
         metavar='N',
         type=int,
@@ -115,21 +60,139 @@ def _register_args(parser: ArgumentParser) -> ArgumentParser:
         '-j',
         '--jobs',
         action='store',
-        default=90,
+        default=50,
         dest='jobs',
         metavar='N',
         type=int,
         help='number of jobs to submit to an HPC system'
     )
 
-    parser.add_argument(
-        '--verbose',
-        action='store_true',
-        dest='verbose',
-        help='clutter your screen with output'
+    ## Subcommands
+    subparser = common.add_subparsers(title='subcommand', dest='subcommand')
+    retrieve_parser = subparser.add_parser(
+        'retrieve',
+        parents=[common],
+        help='retrieve 1KGP datasets'
+    )
+    filter_parser = subparser.add_parser(
+        'filter',
+        parents=[common],
+        help='filter 1KGP datasets based on population structure'
+    )
+    ld_parser = subparser.add_parser(
+        'ld',
+        parents=[common],
+        help='calculate linkage disequilibrium for a given population and SNP list'
     )
 
-    return parser
+    ## Retrieve arguments
+    retrieve_parser.add_argument(
+        'output',
+        default=globe._dir_1k_variants,
+        nargs='?',
+        help='output directory to store raw 1KGP variant calls'
+    )
+
+    ## Filter arguments
+    filter_parser.add_argument(
+        'populations',
+        nargs='?',
+        help='comma separated list of population identifiers to filter on'
+    )
+
+    filter_parser.add_argument(
+        'input',
+        nargs='?',
+        help='input directory containing raw 1KGP variant calls'
+    )
+
+    filter_parser.add_argument(
+        'output',
+        nargs='?',
+        help='output directory to store raw 1KGP variant calls'
+    )
+
+    filter_parser.add_argument(
+        '-s',
+        '--super',
+        action='store_true',
+        dest='super_population',
+        help='the given population list contains only super populations'
+    )
+
+    ## LD arguments
+    ld_parser.add_argument(
+        'snps',
+        nargs='?',
+        help='file containing a list of refSNP IDs to calculate LD for'
+    )
+
+    ld_parser.add_argument(
+        'input',
+        nargs='?',
+        help='input directory containing processed 1KGP variant calls'
+    )
+
+    ld_parser.add_argument(
+        '-r',
+        '--r2',
+        action='store',
+        default=0.7,
+        dest='rsquared',
+        type=float,
+        help='r2 LD threshold'
+    )
+
+
+    #common.add_argument(
+    #    '--verbose',
+    #    action='store_true',
+    #    dest='verbose',
+    #    help='clutter your screen with output'
+    #)
+
+    #common.add_argument(
+    #    'populations',
+    #    nargs='?',
+    #    help='comma separated list of populations to filter on'
+    #)
+
+    #common.add_argument(
+    #    'rsids',
+    #    nargs='?',
+    #    help='file containing list of refSNP IDs'
+    #)
+
+    #common.add_argument(
+    #    'output',
+    #    nargs='?',
+    #    help='output LD file'
+    #)
+
+
+    #common.add_argument(
+    #    '--skip-download',
+    #    action='store_true',
+    #    dest='no_download',
+    #    help='skip retrieving external tools and 1KGP variant calls'
+    #)
+
+    #common.add_argument(
+    #    '--skip-filtering',
+    #    action='store_true',
+    #    dest='no_filter',
+    #    help='skip population filtering'
+    #)
+
+    #common.add_argument(
+    #    '--skip-ld',
+    #    action='store_true',
+    #    dest='no_ld',
+    #    help='skip LD calculations'
+    #)
+
+
+    return common
 
 
 def _validate_arguments(parser: ArgumentParser) -> None:
@@ -143,16 +206,26 @@ def _validate_arguments(parser: ArgumentParser) -> None:
 
     args = parser.parse_args()
 
+    print(args.subcommand)
+    if not args.subcommand:
+        print('')
+        print('ERROR: You need to provide a subcommand')
+        parser.print_help()
+        exit(1)
+
     if not args.populations:
+        print('')
         print('ERROR: You need to provide a population list')
         parser.print_help()
         exit(1)
 
     if not args.rsids:
+        print('')
         print('ERROR: You need to provide a file containing a list of refSNPs')
         parser.print_help()
         exit(1)
 
+    exit()
     return args
 
 
@@ -163,8 +236,7 @@ def setup_arguments(exe):
     :return:
     """
 
-    parser = ArgumentParser()
-    parser = _register_args(parser)
+    parser = _register_args()
 
     return _validate_arguments(parser)
 

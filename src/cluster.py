@@ -20,8 +20,8 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 
 def initialize_local_cluster(
-    workers: int = 6,
-    tmp: str = '/tmp',
+    procs: int = 6,
+    temp: str = '/tmp',
     **kwargs
 ) -> LocalCluster:
     """
@@ -29,16 +29,16 @@ def initialize_local_cluster(
 
     arguments
         workers: number of workers (processes) to use
-        tmp:     location of the local working, or temp, directory
+        temp:     location of the local working, or temp, directory
 
     returns
         a LocalCluster
     """
 
     return LocalCluster(
-        n_workers=workers,
+        n_workers=procs,
         processes=True,
-        local_dir=tmp
+        local_directory=temp
     )
 
 
@@ -49,11 +49,11 @@ def initialize_pbs_cluster(
     cores: int = 2,
     procs: int = 2,
     workers: int = 40,
-    memory: str = '200GB',
+    memory: str = '240GB',
     walltime: str = '03:00:00',
     env_extra: List[str] = ['cd $PBS_O_WORKDIR'],
-    log_dir: str = 'logs',
-    tmp: str = '/tmp',
+    log_dir: str = 'linkd-logs',
+    temp: str = '/tmp',
     **kwargs
 ) -> LocalCluster:
     """
@@ -73,7 +73,7 @@ def initialize_pbs_cluster(
                    process will have 60GB of usable memory
         walltime:  max. runtime for each job
         env_extra: extra arguments to use with the submission shell script
-        tmp:       location of the local working, or temp, directory
+        temp:       location of the local working, or temp, directory
 
     returns
         a LocalCluster
@@ -90,7 +90,7 @@ def initialize_pbs_cluster(
         processes=procs,
         memory=memory,
         walltime=walltime,
-        local_directory=tmp,
+        local_directory=temp,
         job_extra=[f'-e {log_dir}', f'-o {log_dir}'],
         env_extra=env_extra
     )
@@ -107,17 +107,18 @@ def initialize_cluster(hpc: bool = True, verbose: bool = True, jobs: int = 10, *
     if hpc:
         cluster = initialize_pbs_cluster(**kwargs)
         cluster.scale_up(jobs)
-        #cluster.start_worker(n=jobs)
 
     else:
         cluster = initialize_local_cluster(**kwargs)
 
     client = Client(cluster)
 
-    tmp = kwargs['tmp'] if 'tmp' in kwargs else '/tmp'
+    temp = kwargs['temp'] if 'temp' in kwargs else '/tmp'
 
-    dask.config.set({'temporary_directory': tmp})
-    dask.config.set({'local_directory': tmp})
+    Path(temp).mkdir(parents=True, exist_ok=True)
+
+    dask.config.set({'temporary_directory': temp})
+    dask.config.set({'local_directory': temp})
 
     ## Run the logging init function on each worker and register the callback so
     ## future workers also run the function

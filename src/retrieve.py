@@ -26,13 +26,16 @@ from . import log
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 
-def _download(url: str, output: str) -> None:
+def _download(url: str, output: str) -> str:
     """
     Download a file at the given URL and save it to disk.
 
     arguments
         url:    file URL
         output: output filepath
+
+    returns
+        the output filepath
     """
 
     try:
@@ -48,6 +51,8 @@ def _download(url: str, output: str) -> None:
     except Exception as e:
         log._logger.error('Request exception occurred: %s', e)
         raise
+
+    return output
 
 
 def _unzip(fp: str, output: str = None, force: bool = False, **kwargs) -> str:
@@ -124,9 +129,7 @@ def _download_autosome_calls(
     except Exception:
         pass
 
-    _download(url, output)
-
-    return output
+    return _download(url, output)
 
 
 def _download_x_calls(output: str = globe._fp_1k_variant_x_gz, force: bool = False) -> str:
@@ -153,9 +156,7 @@ def _download_x_calls(output: str = globe._fp_1k_variant_x_gz, force: bool = Fal
     ## Make the url
     url = globe._url_1k_x_chromosome
 
-    _download(url, output)
-
-    return output
+    return _download(url, output)
 
 
 def _download_y_calls(output: str = globe._fp_1k_variant_y_gz, force: bool = False):
@@ -179,9 +180,7 @@ def _download_y_calls(output: str = globe._fp_1k_variant_y_gz, force: bool = Fal
     ## Make the url
     url = globe._url_1k_y_chromosome
 
-    _download(url, output)
-
-    return output
+    return _download(url, output)
 
 
 def _download_dbsnp_merge_table(
@@ -204,7 +203,7 @@ def _download_dbsnp_merge_table(
 
     log._logger.info('Retrieving NCBI dbSNP merge table')
 
-    _download(url, output)
+    return _download(url, output)
 
 
 def _download_plink(
@@ -301,6 +300,25 @@ def retrieve_dbsnp_merge_table(client: Client, force: bool = True) -> Future:
     return client.submit(
         _unzip, globe._fp_compressed_dbsnp_table, force=force, depends=table
     )
+
+
+def retrieve_all_datasets(client: Client, force: bool = False) -> List[Future]:
+    """
+    Retrieve all datasets: 1KGP variant calls, the dbSNP merge table, and plink.
+
+    arguments
+        client: a dask Client object
+        force:  if true, datasets will be retrieved even if they exist locally
+
+    returns
+        a list of futures
+    """
+
+    calls = retrieve_variants(client, force=False)
+    plink = retrieve_plink(client, force=False)
+    merge = retrieve_dbsnp_merge_table(client, force=False)
+
+    return (calls + [plink, merge])
 
 
 if __name__ == '__main__':

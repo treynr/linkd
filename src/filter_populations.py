@@ -427,6 +427,8 @@ def filter_vcf_populations(
     """
 
     #popmap = read_population_map()
+    ## This tells us the population samples we need to exclude (everything that isn't
+    ## in the population given by the user)
     samples = identify_excluded_samples(pops, popmap, super_pop=super_pop)
 
     ## There are duplicate refSNP IDs which fucks plink up. We repartition after the drop
@@ -439,8 +441,8 @@ def filter_vcf_populations(
     #)
     #log._logger.info('Dropping samples...')
 
-    ## Remove samples from populations we're not interested in
-    df = df.drop(labels=samples, axis=1)
+    ## Remove samples from populations we're not interested in and repartition
+    df = df.drop(labels=samples, axis=1).repartition(npartitions=500)
 
     return df
 
@@ -470,7 +472,7 @@ def filter_on_refsnps(df):
     :return:
     """
 
-    return df[df.ID.str.contains('rs\d+')]
+    return df[df.ID.str.contains('rs\d+')].repartition(npartitions=500)
 
 
 def remove_duplicate_refsnps(df):
@@ -716,111 +718,6 @@ def _save_chromosomal_variants(
     df.groupby('CHROM').apply(
         _save_distributed_variants, output.as_posix(), meta=('CHROM', 'object')
     ).compute()
-
-
-def _save_chromosomal_variants2(
-    df: ddf.DataFrame,
-    populations: List[str],
-    out_dir: str = globe._dir_1k_processed
-) -> None:
-    """
-    Partition the dataframe by chromosome and save variants to individual files.
-
-    :param df:
-    :return:
-    """
-
-    ## Generate an output path based on the populations used for filtering
-    out_dir = Path(out_dir, '-'.join(populations).lower())
-
-    ## Make the directory if it doesn't exist
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    futures = []
-
-    log._logger.info('Saving variants')
-
-    ## Faster to loop, filter by chromosome number, and save than using a groupby
-    ## statement
-    for chrom in (list(range(1, 23)) + ['X']):
-
-        chrom = str(chrom)
-        output = Path(out_dir, f'chromosome-{chrom}.vcf')
-        future = dfio.save_distributed_dataframe_async(df[df.CHROM == chrom], output)
-
-        futures.append(future)
-
-        #log._logger.info(f'Saving to {output}')
-
-    log._logger.info('Waiting for completion...')
-
-    return futures
-
-
-def filter_populations2(
-    client: Client,
-    pops: List[str],
-    chromosomes: List[int] = range(0, 23),
-    super_pop: bool = False,
-    merge_table: ddf.DataFrame = ddf.from_pandas(pd.DataFrame([]), npartitions=1),
-) -> List[Future]:
-    """
-    Unless you have a couple TB of RAM (e.g., Summit or Titan), this needs to be done
-    in chunks.
-    """
-
-    ## List of delayed objects that will be written to files
-    saved = []
-
-    ## Generate the output directory based on filtered populations
-    outdir = Path(globe._dir_1k_processed, '-'.join([p.lower() for p in pops]))
-
-    ## Make sure it exists
-    outdir.mkdir(exist_ok=True)
-
-    for chrom in chromosomes:
-    #for chrom in range(1, 2):
-        vcf_path = globe._fp_1k_variant_autosome % chrom
-        out_path = Path(outdir, f'chromosome-{chrom}.vcf')
-        #vcf_path = Path(globe._dir_1k_variants, 'sample2.vcf').as_posix()
-
-        header, df = read_vcf(vcf_path)
-        #df = client.submit(filter_vcf_populations, vcf_path, pops, super_pop=super_pop)
-        filt_df = client.submit(filter_vcf_populations, df, pops, super_pop=super_pop)
-
-        ## Update SNP identifiers if a merge table exists
-        if len(merge_table.index) != 0:
-            merge_df = client.submit(merge.merge_snp_identifiers, filt_df, header, merge_table)
-        else:
-            merge_df = filt_df
-
-        #df = filter_vcf_populations(vcf_path, pops, super_pop=super_pop)
-        #dfs = client.scatter(df)
-        #df = filter_vcf_populations(vcf_path, pops, super_pop=super_pop)
-        #future = save_variant_dataframe(df, out_path)
-        future = client.submit(save_variant_dataframe2, merge_df, out_path, header=header)
-        #future = client.submit(save_variant_dataframe2, dfs, out_path)
-
-        saved.append(future)
-
-    #x_out = Path(outdir, 'chromosome-x.vcf')
-    #x_head, x_df = read_vcf(vcf_path)
-    #x_filt_df = client.submit(
-    #    filter_vcf_populations, x_df, pops, super_pop=super_pop
-    #)
-    #x_fut = client.submit(save_variant_dataframe2, x_filt_df, x_out, header=x_head)
-
-    #saved.append(x_fut)
-
-    #y_df = filter_vcf_populations(globe._fp_1k_variant_y, pops, super_pop=super_pop)
-    #y_df = save_variant_dataframe(y_df, globe._fp_1k_processed_y)
-
-    #saved.append(x_df)
-    #saved.append(y_df)
-
-    ## Wait for computations, i.e., file writing as delayed objects, to finish
-    #client.compute(saved)
-    return saved
 
 
 def filter_populations_serial(client: Client, pops: List[str], super_pop: bool = False):
