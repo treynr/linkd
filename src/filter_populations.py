@@ -75,7 +75,8 @@ def read_merge_table(fp: str = globe._fp_dbsnp_table) -> pd.DataFrame:
             'current',
             'o2c',
             'comment'
-        ]
+        ],
+        dtype={'high': np.int64, 'current': np.int64}
     )
 
     return df[['high', 'current']]
@@ -649,10 +650,10 @@ def filter_populations_d(
 
 def filter_populations(
     populations: List[str],
+    out_dir: str,
     super_pop: bool = False,
     #merge: bool = True,
     vcf_dir: str = globe._dir_1k_variants,
-    out_dir: str = globe._dir_1k_processed,
     map_path: str = globe._fp_population_map,
     merge_path: str = globe._fp_dbsnp_table
 ) -> ddf.DataFrame:
@@ -671,7 +672,7 @@ def filter_populations(
     merge = read_merge_table(merge_path).persist()
 
     ## Generate an output path based on the populations used for filtering
-    out_dir = Path(out_dir, '-'.join(populations).lower())
+    #out_dir = Path(out_dir, '-'.join(populations).lower())
 
     ## Make the directory if it doesn't exist
     out_dir.mkdir(parents=True, exist_ok=True)

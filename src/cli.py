@@ -267,6 +267,7 @@ def run_retrieve(args: Dict) -> None:
     futures = retrieve.retrieve_all_datasets(client, args['force'])
 
     client.gather(futures)
+    client.close()
 
 
 def run_filter(args: Dict) -> None:
@@ -284,12 +285,13 @@ def run_filter(args: Dict) -> None:
 
     filtered = filtpop.filter_populations(
         args['populations'],
+        args['output'],
         super_pop=args['super'],
         vcf_dir=args['input'],
-        out_dir=args['output'],
     )
 
     client.gather(filtered)
+    client.close()
 
 
 @click.group()
@@ -446,6 +448,8 @@ def _filter_cmd(ctx, super, populations, input, output):
     ctx.obj['populations'] = populations
     ctx.obj['input'] = input
     ctx.obj['output'] = output
+
+    run_filter(ctx.obj)
 
 
 @cli.command()

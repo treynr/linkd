@@ -45,11 +45,12 @@ def initialize_local_cluster(
 def initialize_pbs_cluster(
     name: str = 'linkage-disequilibrium',
     queue: str = 'batch',
-    interface: str = 'ib0',
+    #interface: str = 'ib0',
+    interface: str = 'eth0',
     cores: int = 2,
     procs: int = 2,
     workers: int = 40,
-    memory: str = '240GB',
+    memory: str = '210GB',
     walltime: str = '03:00:00',
     env_extra: List[str] = ['cd $PBS_O_WORKDIR'],
     log_dir: str = 'linkd-logs',
@@ -91,7 +92,13 @@ def initialize_pbs_cluster(
         memory=memory,
         walltime=walltime,
         local_directory=temp,
-        job_extra=[f'-e {log_dir}', f'-o {log_dir}'],
+        #resource_spec=f'nodes=1:ppn={cores}',
+        job_extra=[
+            f'-l nodes=1:ppn={cores}',
+            f'-l mem={memory}',
+            f'-e {log_dir}',
+            f'-o {log_dir}'
+        ],
         env_extra=env_extra
     )
 
