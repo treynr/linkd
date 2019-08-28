@@ -44,8 +44,9 @@ def _download(url: str, output: str) -> str:
         ## Throw exception for any HTTP errors
         response.raise_for_status()
 
+        ## Read in chunks of 256MB
         with open(output, 'wb') as fl:
-            for chunk in response.iter_content(chunk_size=1024):
+            for chunk in response.iter_content(chunk_size=256000000):
                 fl.write(chunk)
 
     except Exception as e:

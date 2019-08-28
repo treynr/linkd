@@ -269,6 +269,29 @@ def run_retrieve(args: Dict) -> None:
     client.gather(futures)
 
 
+def run_filter(args: Dict) -> None:
+    """
+    Run the filter command.
+
+    arguments
+        args: CLI args and options
+    """
+
+    client = _initialize_cluster(args)
+
+    log._logger.info('Filtering 1KGP variant calls using the following populations:')
+    log._logger.info(', '.join(args['populations']))
+
+    filtered = filtpop.filter_populations(
+        args['populations'],
+        super_pop=args['super'],
+        vcf_dir=args['input'],
+        out_dir=args['output'],
+    )
+
+    client.gather(filtered)
+
+
 @click.group()
 @click.option(
     '-l',
@@ -339,7 +362,6 @@ def cli(ctx, local, cores, procs, jobs, walltime, temp, verbose):
 
 
 @cli.command('retrieve')
-@click.argument('output', required=False)
 @click.option(
     '-f',
     '--force',
@@ -347,8 +369,9 @@ def cli(ctx, local, cores, procs, jobs, walltime, temp, verbose):
     is_flag=True,
     help='retrieve datasets even if local copies already exist'
 )
+@click.argument('output', required=False)
 @click.pass_context
-def retrieve_cmd(ctx, output, force):
+def _retrieve_cmd(ctx, output, force):
     """
     Retrieve and store variant calls from the 1K Genome Project.
 
@@ -375,12 +398,19 @@ def retrieve_cmd(ctx, output, force):
     run_retrieve(ctx.obj)
 
 
-@cli.command()
+@cli.command('filter')
+@click.option(
+    '-s',
+    '--super',
+    default=False,
+    is_flag=True,
+    help='the given population list contains only super populations'
+)
 @click.argument('populations', required=True)
 @click.argument('input', required=False)
 @click.argument('output', required=False)
 @click.pass_context
-def filter(ctx, populations, input, output):
+def _filter_cmd(ctx, super, populations, input, output):
     """
     Filter 1KGP datasets based on population structure.
 
@@ -402,7 +432,7 @@ def filter(ctx, populations, input, output):
         input = globe._dir_1k_variants
 
     if not output:
-        output = globe._dir_1k_processed
+        output = _make_population_path(populations)
 
     try:
         Path(output).mkdir(parents=True, exist_ok=True)
@@ -412,6 +442,7 @@ def filter(ctx, populations, input, output):
         exit(1)
 
     ctx.obj['subcommand'] = 'filter'
+    ctx.obj['super'] = super
     ctx.obj['populations'] = populations
     ctx.obj['input'] = input
     ctx.obj['output'] = output

@@ -442,7 +442,7 @@ def filter_vcf_populations(
     #log._logger.info('Dropping samples...')
 
     ## Remove samples from populations we're not interested in and repartition
-    df = df.drop(labels=samples, axis=1).repartition(npartitions=500)
+    df = df.drop(labels=samples, axis=1)
 
     return df
 
@@ -472,7 +472,7 @@ def filter_on_refsnps(df):
     :return:
     """
 
-    return df[df.ID.str.contains('rs\d+')].repartition(npartitions=500)
+    return df[df.ID.str.contains('rs\d+')]
 
 
 def remove_duplicate_refsnps(df):
@@ -566,7 +566,7 @@ def _filter_populations(
     ## Restore the original header ordering which is disrupted after our merge
     variants = variants[header]
 
-    return variants
+    return variants.repartition(npartitions=500)
 
 
 def _filter_populations2(
