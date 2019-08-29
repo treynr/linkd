@@ -669,7 +669,7 @@ def filter_populations(
     ## Read in the population mapping file
     popmap = read_population_map(map_path)
     ## Read in the merge table
-    merge = read_merge_table(merge_path).persist()
+    merge = read_merge_table(merge_path)#.persist()
 
     ## Generate an output path based on the populations used for filtering
     #out_dir = Path(out_dir, '-'.join(populations).lower())
