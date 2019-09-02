@@ -324,6 +324,13 @@ def run_filter(args: Dict) -> None:
     help='number of jobs to submit to an HPC system'
 )
 @click.option(
+    '-m',
+    '--memory',
+    default='200GB',
+    type=str,
+    help='memory limit for jobs submitted to an HPC system'
+)
+@click.option(
     '-t',
     '--temp',
     default=tf.gettempdir(),
@@ -332,7 +339,7 @@ def run_filter(args: Dict) -> None:
 @click.option(
     '-w',
     '--walltime',
-    default='72:00:00',
+    default='48:00:00',
     help='walltime limit if using an HPC system'
 )
 @click.option(
@@ -342,7 +349,7 @@ def run_filter(args: Dict) -> None:
     help='clutter your screen with output'
 )
 @click.pass_context
-def cli(ctx, local, cores, procs, jobs, walltime, temp, verbose):
+def cli(ctx, local, cores, procs, jobs, walltime, memory, temp, verbose):
 
     ctx.ensure_object(dict)
 
@@ -350,6 +357,7 @@ def cli(ctx, local, cores, procs, jobs, walltime, temp, verbose):
     ctx.obj['cores'] = cores
     ctx.obj['procs'] = procs
     ctx.obj['jobs'] = jobs
+    ctx.obj['memory'] = memory
     ctx.obj['temp'] = temp
     ctx.obj['walltime'] = walltime
     ctx.obj['verbose'] = verbose

@@ -60,11 +60,16 @@ def read_merge_table(fp: str = globe._fp_dbsnp_table) -> pd.DataFrame:
         a dataframe of the merge table
     """
 
-    df = ddf.read_csv(
+    ## The NCBI merge table is about 1GB in size, slightly less after removing columns
+    ## we don't need. By storing the entire thing in a single dataframe, we can speed up
+    ## the merge with the 1K GP variant calls later on. If for some reason memory is an
+    ## issue, this can be changed to use a dask dataframe
+    #df = ddf.read_csv(
+    df = pd.read_csv(
         fp,
         sep='\t',
         header=None,
-        assume_missing=True,
+        #assume_missing=True,
         names=[
             'high',
             'low',
@@ -488,8 +493,8 @@ def remove_duplicate_refsnps(df):
     ## deduplicate using map_partitions
     df = df.set_index('ID', drop=False)
     #df = df.map_partitions(lambda d: d.drop_duplicates(subset='ID'))
-    df = df.drop_duplicates(subset='ID', split_out=200)
-    df = df.reset_index(drop=True)
+    df = df.drop_duplicates(subset='ID', split_out=500)
+    #df = df.reset_index(drop=True)
     #df = df.repartition(npartitions=200)
 
     return df
@@ -680,19 +685,34 @@ def filter_populations(
     futures = []
     client = get_client()
 
-    chroms = ['chromosome-2.vcf', 'chromosome-8.vcf', 'chromosome-10.vcf', 'chromosome-15.vcf', 'chromosome-22.vcf', ]
+    chroms = [
+        'chromosome-1.vcf',
+        'chromosome-2.vcf',
+        'chromosome-3.vcf',
+        'chromosome-4.vcf',
+        'chromosome-5.vcf',
+        'chromosome-6.vcf',
+        'chromosome-10.vcf',
+        'chromosome-11.vcf',
+        'chromosome-14.vcf',
+    ]
 
     #for vcf in Path(vcf_dir).iterdir():
-    for vcf in glob(Path(vcf_dir, '*.vcf').as_posix()):
+    #for vcf in glob(Path(vcf_dir, '*.vcf').as_posix()):
+    for vcf in chroms:
+        output = Path(out_dir, vcf)
+        vcf = Path(vcf_dir, vcf).as_posix()
 
-        output = Path(out_dir, Path(vcf).name)
+        #output = Path(out_dir, Path(vcf).name)
+        log._logger.info(f'Working on {Path(vcf).name}...')
 
         df = _filter_populations(vcf, populations, popmap, merge, super_pop=super_pop)
         df = client.persist(df)
-        #log._logger.info('Saving dataframe...')
-        future = dfio.save_distributed_dataframe_async(df, output.as_posix())
+        dfio.save_distributed_dataframe_sync(df, output.as_posix())
+        #future = dfio.save_distributed_dataframe_async(df, output.as_posix())
 
-        futures.append(future)
+        #client.gather(future)
+        #futures.append(future)
 
     return futures
 
