@@ -64,12 +64,13 @@ def read_merge_table(fp: str = globe._fp_dbsnp_table) -> pd.DataFrame:
     ## we don't need. By storing the entire thing in a single dataframe, we can speed up
     ## the merge with the 1K GP variant calls later on. If for some reason memory is an
     ## issue, this can be changed to use a dask dataframe
-    #df = ddf.read_csv(
-    df = pd.read_csv(
+    df = ddf.read_csv(
+    #df = pd.read_csv(
         fp,
         sep='\t',
         header=None,
-        #assume_missing=True,
+        assume_missing=True,
+        blocksize='100MB',
         names=[
             'high',
             'low',
@@ -674,7 +675,8 @@ def filter_populations(
     ## Read in the population mapping file
     popmap = read_population_map(map_path)
     ## Read in the merge table
-    merge = read_merge_table(merge_path)#.persist()
+    merge = read_merge_table(merge_path).persist()
+    #merge = read_merge_table(merge_path)
 
     ## Generate an output path based on the populations used for filtering
     #out_dir = Path(out_dir, '-'.join(populations).lower())
