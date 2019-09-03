@@ -492,7 +492,7 @@ def remove_duplicate_refsnps(df):
     ## Dask's drop_duplicates isn't always the greatest (at least in my experience) for
     ## massive datasets, so we set the index to be the rsid (expensive) then
     ## deduplicate using map_partitions
-    df = df.set_index('ID', drop=False)
+    #df = df.set_index('ID', drop=False)
     #df = df.map_partitions(lambda d: d.drop_duplicates(subset='ID'))
     df = df.drop_duplicates(subset='ID', split_out=500)
     #df = df.reset_index(drop=True)
@@ -573,7 +573,8 @@ def _filter_populations(
     ## Restore the original header ordering which is disrupted after our merge
     variants = variants[header]
 
-    return variants.repartition(npartitions=500)
+    #return variants.repartition(npartitions=500)
+    return variants.repartition(partition_size='150MB')
 
 
 def _filter_populations2(

@@ -154,7 +154,11 @@ def save_distributed_dataframe_sync(
 
 
     client = get_client()
-    paths = client.gather(_write_dataframe_partition(df, header=header))
+    #paths = client.gather(_write_dataframe_partition(df, header=header))
+    outdir = tf.mkdtemp(dir=globe._dir_data)
+    paths = df.to_csv(
+        Path(outdir, '*').as_posix(), sep='\t', index=False, header=header, na_rep='NA'
+    )
 
     return _consolidate_separate_partitions(paths, output)
 
