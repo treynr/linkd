@@ -492,11 +492,8 @@ def remove_duplicate_refsnps(df):
     ## Dask's drop_duplicates isn't always the greatest (at least in my experience) for
     ## massive datasets, so we set the index to be the rsid (expensive) then
     ## deduplicate using map_partitions
-    #df = df.set_index('ID', drop=False)
-    #df = df.map_partitions(lambda d: d.drop_duplicates(subset='ID'))
-    df = df.drop_duplicates(subset='ID', split_out=500)
-    #df = df.reset_index(drop=True)
-    #df = df.repartition(npartitions=200)
+    df = df.set_index('ID', drop=False)
+    df = df.map_partitions(lambda d: d.drop_duplicates(subset='ID'))
 
     return df
 
@@ -573,8 +570,8 @@ def _filter_populations(
     ## Restore the original header ordering which is disrupted after our merge
     variants = variants[header]
 
-    #return variants.repartition(npartitions=500)
-    return variants.repartition(partition_size='150MB')
+    return variants.repartition(npartitions=500)
+    #return variants.repartition(partition_size='150MB')
 
 
 def _filter_populations2(
@@ -689,9 +686,9 @@ def filter_populations(
     client = get_client()
 
     chroms = [
-        'chromosome-1.vcf',
-        'chromosome-2.vcf',
-        'chromosome-3.vcf',
+        #'chromosome-1.vcf',
+        #'chromosome-2.vcf',
+        #'chromosome-3.vcf',
         'chromosome-4.vcf',
         'chromosome-5.vcf',
         'chromosome-6.vcf',
@@ -700,22 +697,22 @@ def filter_populations(
         'chromosome-14.vcf',
     ]
 
-    #for vcf in Path(vcf_dir).iterdir():
-    #for vcf in glob(Path(vcf_dir, '*.vcf').as_posix()):
-    for vcf in chroms:
-        output = Path(out_dir, vcf)
-        vcf = Path(vcf_dir, vcf).as_posix()
+    for vcf in glob(Path(vcf_dir, '*.vcf').as_posix()):
+    #for vcf in chroms:
+        #output = Path(out_dir, vcf)
+        #vcf = Path(vcf_dir, vcf).as_posix()
 
-        #output = Path(out_dir, Path(vcf).name)
+        output = Path(out_dir, Path(vcf).name)
+
         log._logger.info(f'Working on {Path(vcf).name}...')
 
         df = _filter_populations(vcf, populations, popmap, merge, super_pop=super_pop)
         df = client.persist(df)
-        dfio.save_distributed_dataframe_sync(df, output.as_posix())
-        #future = dfio.save_distributed_dataframe_async(df, output.as_posix())
+        #dfio.save_distributed_dataframe_sync(df, output.as_posix())
+        future = dfio.save_distributed_dataframe_async(df, output.as_posix())
 
         #client.gather(future)
-        #futures.append(future)
+        futures.append(future)
 
     return futures
 

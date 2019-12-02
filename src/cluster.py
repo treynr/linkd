@@ -45,8 +45,8 @@ def initialize_local_cluster(
 def initialize_pbs_cluster(
     name: str = 'linkage-disequilibrium',
     queue: str = 'batch',
-    #interface: str = 'ib0',
-    interface: str = 'eth0',
+    interface: str = 'ib0',
+    #interface: str = 'eth0',
     cores: int = 2,
     procs: int = 2,
     workers: int = 40,
@@ -92,9 +92,10 @@ def initialize_pbs_cluster(
         memory=memory,
         walltime=walltime,
         local_directory=temp,
-        #resource_spec=f'nodes=1:ppn={cores}',
+        resource_spec=f'nodes=1:ppn={cores}',
         job_extra=[
-            f'-l nodes=1:ppn={cores}',
+            f'-N {name}',
+            #f'-l nodes=1:ppn={cores}',
             f'-l mem={memory}',
             f'-e {log_dir}',
             f'-o {log_dir}'
@@ -113,7 +114,7 @@ def initialize_cluster(hpc: bool = True, verbose: bool = True, jobs: int = 10, *
 
     if hpc:
         cluster = initialize_pbs_cluster(**kwargs)
-        cluster.scale_up(jobs)
+        cluster.scale(jobs=jobs)
 
     else:
         cluster = initialize_local_cluster(**kwargs)

@@ -60,7 +60,10 @@ def _parse_rsid_list(input: str) -> pd.Series:
     return df.loc[:, snp_col]
 
 
-def _make_rsid_file(snps: pd.Series, base: str = globe._dir_work) -> str:
+def _make_rsid_file(
+    snps: pd.Series,
+    base: str = globe._dir_work
+) -> tf.NamedTemporaryFile:
     """
 
     :param snps:
@@ -294,6 +297,45 @@ def run_filter(args: Dict) -> None:
     client.close()
 
 
+def run_ld(args: Dict) -> None:
+    """
+    Run the ld command.
+
+    arguments
+        args: CLI args and options
+    """
+
+    log._logger.info('Processing SNP list...')
+
+    snps = _parse_rsid_list(args['snps'])
+    snps_file = _make_rsid_file(snps)
+
+    log._logger.info('Starting cluster...')
+
+    client = _initialize_cluster(args)
+
+    log._logger.info('Waiting for workers to start...')
+
+    _wait_for_workers(args['jobs'], limit=0)
+
+    log._logger.info(f'Calculating LD for {len(snps)} SNPs...')
+
+    ld_scores = ld.calculate_ld2(
+        args['input'],
+        snps_file.name,
+        r2=args['r2'],
+        threads=args['cores']
+    )
+
+    ld_scores = client.gather(ld_scores)
+
+    client.close()
+
+    log._logger.info('Formatting output...')
+
+    ld.format_merge_files(ld_scores, args['output'])
+
+
 @click.group()
 @click.option(
     '-l',
@@ -460,12 +502,19 @@ def _filter_cmd(ctx, super, populations, input, output):
     run_filter(ctx.obj)
 
 
-@cli.command()
+@cli.command('ld')
 @click.argument('snps', required=True)
 @click.argument('input', required=True)
 @click.argument('output', required=True)
+@click.option(
+    '-r',
+    '--r2',
+    default=0.7,
+    type=float,
+    help='LD r-squared threshold'
+)
 @click.pass_context
-def ld(ctx, snps, input, output):
+def _ld_cmd(ctx, snps, input, output, r2):
     """
     Calculate linkage disequilibrium for a given population and SNP list.
 
@@ -475,9 +524,13 @@ def ld(ctx, snps, input, output):
     OUTPUT is the output of the LD calculations.
     """
 
-    ctx.ensure_object(dict)
+    if not Path(snps).exists():
+        log._logger.error(f'The refSNP list ({input}) does not exist')
+        exit(1)
 
-    snps = _parse_rsid_list(snps)
+    if not Path(input).exists():
+        log._logger.error(f'The 1KGP variant call directory ({input}) does not exist')
+        exit(1)
 
     try:
         Path(output).mkdir(parents=True, exist_ok=True)
@@ -486,11 +539,15 @@ def ld(ctx, snps, input, output):
         print(e)
         exit(1)
 
+    ctx.ensure_object(dict)
+
     ctx.obj['subcommand'] = 'ld'
     ctx.obj['snps'] = snps
     ctx.obj['input'] = input
     ctx.obj['output'] = output
+    ctx.obj['r2'] = r2
 
+    run_ld(ctx.obj)
 
 if __name__ == '__main__':
     cli()
