@@ -532,12 +532,12 @@ def _ld_cmd(ctx, snps, input, output, r2):
         log._logger.error(f'The 1KGP variant call directory ({input}) does not exist')
         exit(1)
 
-    try:
-        Path(output).mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        log._logger.error('Could not make output directory')
-        print(e)
-        exit(1)
+    #try:
+    #    Path(output).mkdir(parents=True, exist_ok=True)
+    #except Exception as e:
+    #    log._logger.error('Could not make output directory')
+    #    print(e)
+    #    exit(1)
 
     ctx.ensure_object(dict)
 
